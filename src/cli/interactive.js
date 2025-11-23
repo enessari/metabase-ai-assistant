@@ -8,10 +8,10 @@ import { logger } from '../utils/logger.js';
 export class InteractiveCLI {
   constructor(config) {
     this.metabaseClient = new MetabaseClient({
-      url: config.metabaseUrl || 'http://10.90.254.70:3000',
+      url: config.metabaseUrl || 'http://xx.xx.xxx.xx:3000', //TODO Change with your value
       username: config.metabaseUsername,
       password: config.metabasePassword,
-      apiKey: config.metabaseApiKey || 'mb_ySiQmYL+nmMGVT7FLUVBDtAg6L603DQG/FX6Y+UIm/4='
+      apiKey: config.metabaseApiKey || 'xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx' //TODO Change with your value
     });
 
     this.assistant = new MetabaseAIAssistant({
