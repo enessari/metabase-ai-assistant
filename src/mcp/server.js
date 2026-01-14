@@ -3953,8 +3953,9 @@ class MetabaseMCPServer {
         if (currentSection) {
           sections.push(currentSection);
         }
+        const headingText = line.replace(/<\/?h[23][^>]*>/gi, '').trim();
         currentSection = {
-          title: he.escape(line.replace(/<[^>]*>/g, '').trim()),
+          title: he.escape(headingText),
           description: '',
           area: area
         };
