@@ -1,4 +1,5 @@
 import { logger } from './logger.js';
+import crypto from 'crypto';
 
 export class ActivityLogger {
   constructor(metabaseClient, options = {}) {
@@ -23,7 +24,8 @@ export class ActivityLogger {
   }
 
   generateSessionId() {
-    return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const randomPart = crypto.randomBytes(9).toString('base64url');
+    return `session_${Date.now()}_${randomPart}`;
   }
 
   async initialize(databaseId) {
