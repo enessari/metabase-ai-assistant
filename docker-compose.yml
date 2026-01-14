@@ -1,0 +1,35 @@
+version: '3.8'
+
+services:
+  metabase-ai-mcp:
+    build: .
+    container_name: metabase-ai-mcp-server
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production
+      - LOG_LEVEL=info
+      - METABASE_URL=${METABASE_URL}
+      - METABASE_USERNAME=${METABASE_USERNAME}
+      - METABASE_PASSWORD=${METABASE_PASSWORD}
+      - METABASE_API_KEY=${METABASE_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+    volumes:
+      - ./logs:/app/logs
+      - ./.env:/app/.env:ro
+    networks:
+      - mcp-network
+    healthcheck:
+      test: ["CMD", "node", "-e", "console.log('Health check')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+networks:
+  mcp-network:
+    driver: bridge
+
+volumes:
+  mcp-logs:
+    driver: local

@@ -1,0 +1,34 @@
+[Unit]
+Description=Metabase AI Assistant MCP Server
+Documentation=https://github.com/enessari/metabase-ai-assistant
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=mcp
+Group=mcp
+WorkingDirectory=/opt/metabase-ai-assistant
+ExecStart=/usr/bin/node src/mcp/server.js
+Restart=always
+RestartSec=10
+StandardOutput=syslog
+StandardError=syslog
+SyslogIdentifier=metabase-ai-mcp
+Environment=NODE_ENV=production
+Environment=LOG_LEVEL=info
+EnvironmentFile=/opt/metabase-ai-assistant/.env
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/metabase-ai-assistant/logs
+
+# Resource limits
+LimitNOFILE=65536
+MemoryMax=1G
+
+[Install]
+WantedBy=multi-user.target
