@@ -15,6 +15,7 @@ import { ConnectionManager } from '../database/connection-manager.js';
 import { ActivityLogger } from '../utils/activity-logger.js';
 import { logger } from '../utils/logger.js';
 import dotenv from 'dotenv';
+import he from 'he';
 
 // Load environment variables
 dotenv.config();
@@ -3953,7 +3954,7 @@ class MetabaseMCPServer {
           sections.push(currentSection);
         }
         currentSection = {
-          title: line.replace(/<[^>]*>/g, '').trim(),
+          title: he.escape(line.replace(/<[^>]*>/g, '').trim()),
           description: '',
           area: area
         };
