@@ -1,0 +1,847 @@
+
+METABASE
+INTERNAL DATABASE
+REFERENCE GUIDE
+
+Question, Dashboard ve Visualization Oluşturma Rehberi
+
+ETS Group - Technology / BI-DWH Team
+Versiyon 1.0 | Ocak 2026
+
+İçindekiler
+
+
+
+1. Giriş ve Genel Bakış
+Bu döküman, Metabase uygulamasının internal veritabanı yapısını detaylı olarak açıklamaktadır. MetabaseappDB (ID: 6) veritabanının public şeması, Metabase'in tüm metadata bilgilerini, kullanıcı verilerini, question/dashboard tanımlarını ve sorgu geçmişini barındırır.
+1.1 Bu Dökümanın Amacı
+Bu referans dökümanı aşağıdaki amaçlarla kullanılabilir:
+• Yeni Question ve Dashboard oluştururken tablo yapılarını anlamak
+• Visualization tiplerini ve kullanım senaryolarını öğrenmek
+• Metabase API ile entegrasyon yaparken referans almak
+• Performans analizi ve monitoring için sorgu örnekleri bulmak
+• Claude AI asistanına Metabase yapısı hakkında bağlam sağlamak
+1.2 Veritabanı Bağlantı Bilgileri
+Parametre
+Değer
+Database ID
+6
+Database Name
+MetabaseappDB
+Engine
+PostgreSQL
+Schema
+public
+Tablo Sayısı
+104
+
+2. Kullanıcı ve Erişim Yönetimi Tabloları
+2.1 core_user
+Amaç: Metabase kullanıcılarının temel bilgilerini saklar. Her Metabase kullanıcısı bu tabloda bir kayıt olarak tutulur.
+Önemli Kolonlar:
+Kolon
+Tip
+Açıklama
+id
+integer
+Kullanıcı benzersiz ID'si
+email
+citext
+E-posta adresi (login için kullanılır)
+first_name
+varchar
+Kullanıcı adı
+last_name
+varchar
+Kullanıcı soyadı
+is_superuser
+boolean
+Admin yetkisi var mı?
+is_active
+boolean
+Hesap aktif mi?
+last_login
+timestamp
+Son giriş zamanı
+date_joined
+timestamp
+Kayıt tarihi
+sso_source
+varchar
+SSO kaynağı (Google, LDAP vb.)
+locale
+varchar
+Dil tercihi
+Kullanım Örneği - Aktif Kullanıcı Listesi:
+SELECT id, email, first_name, last_name, last_login FROM core_user WHERE is_active = true ORDER BY last_login DESC
+2.2 permissions_group
+Amaç: Kullanıcı yetki gruplarını tanımlar. Metabase'de erişim kontrolü grup bazlı çalışır.
+Önemli Kolonlar:
+Kolon
+Tip
+Açıklama
+id
+integer
+Grup benzersiz ID'si
+name
+varchar
+Grup adı
+entity_id
+varchar
+Harici sistem entegrasyonu için ID
+magic_group_type
+varchar
+Özel grup tipi (admin, all-internal-users)
+Özel Gruplar:
+• ID=1 'All Users': Tüm kullanıcıların otomatik üye olduğu grup
+• ID=2 'Administrators': Admin yetkilerine sahip kullanıcılar
+2.3 permissions_group_membership
+Amaç: Kullanıcı-grup ilişkisini tutan many-to-many bridge tablosu.
+Kolon
+Tip
+Açıklama
+id
+integer
+Kayıt ID'si
+user_id
+integer
+core_user.id referansı
+group_id
+integer
+permissions_group.id referansı
+Kullanım Örneği - Grup Üye Sayıları:
+SELECT pg.name, COUNT(pgm.user_id) as member_count FROM permissions_group pg LEFT JOIN permissions_group_membership pgm ON pg.id = pgm.group_id GROUP BY pg.id, pg.name ORDER BY member_count DESC
+2.4 login_history
+Amaç: Kullanıcı giriş geçmişini saklar. Güvenlik auditi ve kullanıcı aktivite analizi için kullanılır.
+Kolon
+Tip
+Açıklama
+user_id
+integer
+Giriş yapan kullanıcı
+timestamp
+timestamp
+Giriş zamanı
+session_id
+varchar
+Oturum ID'si
+device_id
+varchar
+Cihaz tanımlayıcı
+device_description
+varchar
+Tarayıcı/cihaz bilgisi
+ip_address
+varchar
+IP adresi
+2.5 api_key
+Amaç: API erişimi için oluşturulan anahtarları saklar. MCP ve harici entegrasyonlar bu anahtarları kullanır.
+Kolon
+Tip
+Açıklama
+id
+integer
+API key ID'si
+name
+varchar
+API key açıklaması
+key_prefix
+varchar
+Key prefix (mb_xxx)
+creator_id
+integer
+Oluşturan kullanıcı
+scope
+varchar
+Yetki kapsamı
+created_at
+timestamp
+Oluşturulma tarihi
+
+3. İçerik ve Raporlama Tabloları
+3.1 collection
+Amaç: Question ve Dashboard'ların organize edildiği klasör yapısını tanımlar. Hiyerarşik yapıda olabilir.
+Kolon
+Tip
+Açıklama
+id
+integer
+Collection ID
+name
+varchar
+Collection adı
+slug
+varchar
+URL-friendly isim
+personal_owner_id
+integer
+Kişisel koleksiyon sahibi (NULL ise paylaşımlı)
+location
+varchar
+Hiyerarşik konum (örn: /5/12/)
+authority_level
+varchar
+Yetki seviyesi (official vb.)
+type
+varchar
+Tip (trash, instance-analytics)
+Özel Collection'lar:
+• type='trash': Silinen öğeler çöp kutusu
+• personal_owner_id NOT NULL: Kullanıcının kişisel alanı
+• location='/': Root seviyesinde
+3.2 report_card (Questions)
+Amaç: Metabase'deki tüm Question'ları (sorguları) saklar. Bu tablo, Metabase'in en önemli içerik tablosudur.
+Temel Kolonlar:
+Kolon
+Tip
+Açıklama
+id
+integer
+Question benzersiz ID'si
+name
+varchar
+Question başlığı
+description
+text
+Question açıklaması
+display
+varchar
+Görselleştirme tipi
+query_type
+varchar
+Sorgu tipi (native/query)
+database_id
+integer
+Hedef veritabanı
+collection_id
+integer
+Bulunduğu collection
+creator_id
+integer
+Oluşturan kullanıcı
+archived
+boolean
+Arşivlenmiş mi?
+enable_embedding
+boolean
+Embed edilebilir mi?
+cache_ttl
+integer
+Önbellek süresi (saniye)
+Sorgu Kolonları:
+Kolon
+Tip
+Açıklama
+dataset_query
+text
+MBQL veya Native SQL sorgusu (JSON)
+result_metadata
+text
+Sonuç kolon metadata'sı (JSON)
+visualization_settings
+text
+Chart ayarları (JSON)
+parameters
+text
+Parametre tanımları (JSON)
+Display (Görselleştirme) Tipleri:
+Tip
+Açıklama ve Kullanım Senaryosu
+table
+Tablo görünümü - Detaylı veri listesi, drill-down için ideal
+scalar
+Tek değer - KPI kartları, toplam/ortalama gösterimi
+line
+Çizgi grafik - Zaman serisi, trend analizi
+bar
+Çubuk grafik - Kategori karşılaştırması
+area
+Alan grafik - Kümülatif değerler, stacked görünüm
+pie
+Pasta grafik - Oran/yüzde dağılımı (max 6-8 dilim önerilir)
+row
+Yatay çubuk - Çok kategori olduğunda bar yerine
+scatter
+Dağılım - Korelasyon analizi, 2 metrik karşılaştırma
+funnel
+Huni - Dönüşüm analizi, satış pipeline
+map
+Harita - Coğrafi dağılım (lat/long veya bölge)
+gauge
+Gösterge - Hedefe göre performans
+progress
+İlerleme çubuğu - Yüzdelik tamamlanma
+waterfall
+Şelale - Artış/azalış analizi, kâr-zarar
+combo
+Kombinasyon - Çizgi + Çubuk birlikte
+pivot
+Pivot tablo - Çok boyutlu analiz
+smartscalar
+Akıllı skaler - Değişim yüzdesi ile
+Query Type Değerleri:
+• 'native': Doğrudan SQL sorgusu yazılmış
+• 'query': GUI Query Builder ile oluşturulmuş (MBQL formatında)
+3.3 report_dashboard
+Amaç: Dashboard tanımlarını saklar. Dashboard'lar birden fazla Question'ı bir arada gösteren konteynerlerdir.
+Kolon
+Tip
+Açıklama
+id
+integer
+Dashboard ID
+name
+varchar
+Dashboard adı
+description
+text
+Dashboard açıklaması
+creator_id
+integer
+Oluşturan kullanıcı
+collection_id
+integer
+Bulunduğu collection
+parameters
+text
+Dashboard filtreleri (JSON)
+public_uuid
+varchar
+Public paylaşım UUID'si
+enable_embedding
+boolean
+Embed edilebilir mi?
+archived
+boolean
+Arşivlenmiş mi?
+width
+varchar
+Dashboard genişliği (fixed/full)
+cache_ttl
+integer
+Önbellek süresi
+3.4 report_dashboardcard
+Amaç: Dashboard içindeki kartların (Question'ların) pozisyon ve boyut bilgilerini saklar.
+Kolon
+Tip
+Açıklama
+id
+integer
+Dashboard card ID
+dashboard_id
+integer
+Bağlı olduğu dashboard
+card_id
+integer
+Gösterilen question (NULL ise text card)
+row
+integer
+Grid satır pozisyonu (0'dan başlar)
+col
+integer
+Grid sütun pozisyonu (0-23)
+size_x
+integer
+Genişlik (grid birimi, max 24)
+size_y
+integer
+Yükseklik (grid birimi)
+parameter_mappings
+text
+Filtre bağlantıları (JSON)
+visualization_settings
+text
+Kart özel ayarları (JSON)
+Dashboard Grid Sistemi:
+• Dashboard 24 sütunluk bir grid sistemine sahiptir
+• col: 0-23 arası sütun pozisyonu
+• size_x: 1-24 arası genişlik
+• row: Satır numarası (0'dan başlar, sınırsız)
+• size_y: Yükseklik (tipik değerler: 4-8)
+Tipik Kart Boyutları:
+Kullanım
+Boyut (x,y)
+Açıklama
+KPI Kartı
+6 x 3
+Tek değer gösterimi
+Küçük Grafik
+8 x 6
+Trend çizgisi
+Orta Grafik
+12 x 8
+Standart grafik
+Geniş Grafik
+24 x 8
+Tam genişlik
+Tablo
+24 x 10
+Detaylı liste
+
+4. Veritabanı Metadata Tabloları
+4.1 metabase_database
+Amaç: Metabase'e bağlı veritabanlarının tanımlarını ve bağlantı ayarlarını saklar.
+Kolon
+Tip
+Açıklama
+id
+integer
+Veritabanı ID
+name
+varchar
+Görünen ad
+engine
+varchar
+Veritabanı tipi
+details
+text
+Bağlantı detayları (şifreli JSON)
+is_sample
+boolean
+Örnek veritabanı mı?
+is_audit
+boolean
+Audit veritabanı mı?
+cache_ttl
+integer
+Varsayılan cache süresi
+metadata_sync_schedule
+varchar
+Metadata sync cron ifadesi
+cache_field_values_schedule
+varchar
+Field values sync cron
+Desteklenen Engine Tipleri:
+postgres, mysql, bigquery-cloud-sdk, clickhouse, snowflake, redshift, mongo, h2, sqlite, presto, sparksql, oracle, sqlserver
+4.2 metabase_table
+Amaç: Veritabanlarındaki tabloların metadata bilgilerini saklar.
+Kolon
+Tip
+Açıklama
+id
+integer
+Tablo ID
+db_id
+integer
+Bağlı veritabanı
+schema
+varchar
+Schema adı
+name
+varchar
+Tablo adı
+display_name
+varchar
+Görünen ad
+description
+text
+Tablo açıklaması
+visibility_type
+varchar
+Görünürlük (NULL=visible, hidden, technical)
+entity_type
+varchar
+Model tipi (entity/generic vb.)
+4.3 metabase_field
+Amaç: Tablo kolonlarının metadata bilgilerini saklar. Semantic type ve display ayarları burada tutulur.
+Kolon
+Tip
+Açıklama
+id
+integer
+Field ID
+table_id
+integer
+Bağlı tablo
+name
+varchar
+Kolon adı
+display_name
+varchar
+Görünen ad
+description
+text
+Kolon açıklaması
+base_type
+varchar
+Temel veri tipi
+semantic_type
+varchar
+Anlamsal tip
+visibility_type
+varchar
+Görünürlük
+has_field_values
+varchar
+Dropdown gösterimi (none/list/search)
+fk_target_field_id
+integer
+Foreign key hedefi
+Semantic Type Değerleri (Sık Kullanılanlar):
+Semantic Type
+Açıklama
+type/PK
+Primary Key
+type/FK
+Foreign Key
+type/Name
+İsim alanı
+type/Email
+E-posta adresi
+type/URL
+Web adresi
+type/Currency
+Para birimi
+type/Category
+Kategori (filtre için ideal)
+type/CreationTimestamp
+Oluşturulma zamanı
+type/Latitude
+Enlem
+type/Longitude
+Boylam
+type/Country
+Ülke
+type/City
+Şehir
+4.4 metabase_fieldvalues
+Amaç: Field'ların distinct değerlerini cache'ler. Dropdown filtreleri için kullanılır.
+Kolon
+Tip
+Açıklama
+id
+integer
+ID
+field_id
+integer
+İlgili field
+values
+text
+Distinct değerler (JSON array)
+human_readable_values
+text
+Görünen değerler (opsiyonel)
+type
+varchar
+Tip (full, linked, sandbox)
+hash_key
+varchar
+Cache hash
+
+5. Performans ve Monitoring Tabloları
+5.1 query_execution
+Amaç: Çalıştırılan tüm sorguların performans metriklerini saklar. Performans analizi için kritik öneme sahiptir.
+Kolon
+Tip
+Açıklama
+id
+integer
+Execution ID
+hash
+bytea
+Sorgu hash'i (aynı sorguları gruplamak için)
+started_at
+timestamp
+Başlangıç zamanı
+running_time
+integer
+Çalışma süresi (ms)
+result_rows
+integer
+Dönen satır sayısı
+native
+boolean
+Native SQL mi?
+context
+varchar
+Çalıştırma bağlamı
+error
+text
+Hata mesajı (başarısızsa)
+executor_id
+integer
+Çalıştıran kullanıcı
+card_id
+integer
+İlgili question (varsa)
+dashboard_id
+integer
+İlgili dashboard (varsa)
+database_id
+integer
+Hedef veritabanı
+cache_hit
+boolean
+Cache'den mi geldi?
+Context Değerleri:
+• 'question': Question çalıştırma
+• 'dashboard': Dashboard yüklenirken
+• 'ad-hoc': Manuel sorgu (query builder/native)
+• 'pulse': Scheduled report
+Performans Analizi Örnek Sorguları:
+-- En yavaş 10 question
+SELECT rc.name, AVG(qe.running_time)::int as avg_ms, COUNT(*) as exec_count
+FROM query_execution qe JOIN report_card rc ON qe.card_id = rc.id
+WHERE qe.started_at > NOW() - INTERVAL '7 days'
+GROUP BY rc.id ORDER BY avg_ms DESC LIMIT 10;
+5.2 task_history
+Amaç: Background task'ların çalışma geçmişini saklar. Sync, cache refresh gibi işlemler burada loglanır.
+Kolon
+Tip
+Açıklama
+id
+integer
+Task ID
+task
+varchar
+Task tipi
+db_id
+integer
+İlgili veritabanı
+started_at
+timestamp
+Başlangıç zamanı
+ended_at
+timestamp
+Bitiş zamanı
+duration
+integer
+Süre (ms)
+task_details
+text
+Task detayları (JSON)
+Task Tipleri:
+• 'sync-and-analyze': Metadata senkronizasyonu
+• 'update-field-values': Field values cache yenileme
+• 'send-pulses': Scheduled report gönderimi
+• 'persist-refresh': Model cache yenileme
+
+6. Diğer Önemli Tablolar
+6.1 pulse
+Amaç: Zamanlanmış raporları (scheduled reports) tanımlar. E-posta veya Slack ile gönderim yapılır.
+Kolon
+Tip
+Açıklama
+id
+integer
+Pulse ID
+name
+varchar
+Pulse adı
+creator_id
+integer
+Oluşturan
+collection_id
+integer
+Bulunduğu collection
+skip_if_empty
+boolean
+Sonuç yoksa gönderme
+archived
+boolean
+Arşivlenmiş mi?
+dashboard_id
+integer
+Bağlı dashboard (subscription için)
+parameters
+text
+Filtre parametreleri
+6.2 pulse_channel
+Amaç: Pulse'ların gönderim kanallarını ve zamanlamalarını tanımlar.
+Kolon
+Tip
+Açıklama
+pulse_id
+integer
+Bağlı pulse
+channel_type
+varchar
+Kanal tipi (email, slack)
+schedule_type
+varchar
+Zamanlama tipi
+schedule_hour
+integer
+Gönderim saati
+schedule_day
+varchar
+Gönderim günü
+schedule_frame
+varchar
+Frame (first, last, mid)
+Schedule Type Değerleri:
+• 'hourly': Her saat
+• 'daily': Her gün belirli saatte
+• 'weekly': Haftada bir belirli gün
+• 'monthly': Ayda bir
+6.3 native_query_snippet
+Amaç: Yeniden kullanılabilir SQL snippet'larını saklar. Native sorgularda {{snippet: name}} ile çağrılır.
+Kolon
+Tip
+Açıklama
+id
+integer
+Snippet ID
+name
+varchar
+Snippet adı
+description
+varchar
+Açıklama
+content
+text
+SQL içeriği
+collection_id
+integer
+Snippet collection
+creator_id
+integer
+Oluşturan
+archived
+boolean
+Arşivlenmiş mi?
+Snippet Kullanım Örneği:
+-- Sorguda snippet kullanımı
+SELECT email, {{snippet: normalize_name_smart}}(firstname) as clean_name
+FROM members WHERE {{snippet: Is Invalid Email}}(email) = false
+6.4 revision
+Amaç: Question, Dashboard ve diğer objelerin değişiklik geçmişini saklar. Versiyon kontrolü sağlar.
+Kolon
+Tip
+Açıklama
+id
+integer
+Revision ID
+model
+varchar
+Obje tipi (Card, Dashboard)
+model_id
+integer
+Obje ID
+user_id
+integer
+Değişikliği yapan
+timestamp
+timestamp
+Değişiklik zamanı
+object
+text
+Objenin o anki hali (JSON)
+is_reversion
+boolean
+Geri alma işlemi mi?
+is_creation
+boolean
+İlk oluşturma mı?
+message
+text
+Değişiklik notu
+
+7. Quartz Scheduler Tabloları
+Metabase, zamanlanmış görevler için Quartz Scheduler kullanır. qrtz_ prefix'li tablolar bu scheduler'ın internal verileridir.
+Quartz Tabloları:
+Tablo
+Açıklama
+qrtz_job_details
+Job tanımları
+qrtz_triggers
+Trigger tanımları
+qrtz_cron_triggers
+Cron tabanlı trigger'lar
+qrtz_simple_triggers
+Basit interval trigger'lar
+qrtz_fired_triggers
+Çalışan trigger'lar
+qrtz_scheduler_state
+Scheduler durumu
+qrtz_locks
+Distributed lock'lar
+Not: Bu tablolar genellikle doğrudan sorgulanmaz. Metabase admin paneli üzerinden yönetilir. Ancak scheduler sorunlarını debug etmek için kullanılabilir.
+
+8. Pratik Kullanım Senaryoları
+8.1 Yeni Dashboard Oluşturma Workflow
+1. Collection belirle veya oluştur (collection tablosu)
+2. Question'ları oluştur (report_card tablosu)
+3. Dashboard oluştur (report_dashboard tablosu)
+4. Kartları yerleştir (report_dashboardcard tablosu)
+5. Filtreleri ekle (dashboard parameters JSON'ı)
+8.2 Performans Optimizasyonu
+1. query_execution tablosundan yavaş sorguları tespit et
+2. running_time > 10000 olan card_id'leri bul
+3. report_card'dan sorguyu al ve optimize et
+4. cache_ttl ayarla (sık değişmeyen veriler için)
+5. Gerekirse materialized view oluştur
+8.3 Kullanıcı Aktivite Analizi
+1. login_history'den giriş sıklığını analiz et
+2. query_execution'dan kullanım paternlerini çıkar
+3. En popüler dashboard ve question'ları tespit et
+4. Kullanılmayan içerikleri arşivle
+8.4 API Entegrasyonu
+1. api_key tablosundan mevcut key'leri kontrol et
+2. Yeni API key oluştur (Admin Panel üzerinden)
+3. report_card.id ile question çalıştır
+4. report_dashboard.id ile dashboard embed et
+5. public_uuid ile public sharing aktifleştir
+
+9. Best Practices ve Öneriler
+9.1 Visualization Seçimi
+Veri Tipi
+Önerilen Visualization
+Tek KPI değeri
+scalar veya smartscalar
+Zaman serisi
+line veya area
+Kategori karşılaştırması
+bar (az kategori), row (çok kategori)
+Oran/yüzde dağılımı
+pie (max 6-8 dilim)
+Coğrafi veri
+map
+Dönüşüm hunisi
+funnel
+Hedefe göre performans
+gauge veya progress
+Çok boyutlu analiz
+pivot
+Detaylı liste
+table
+9.2 Dashboard Tasarım İlkeleri
+• En önemli KPI'lar üstte, detaylar altta
+• İlişkili kartları grupla
+• Tutarlı renk paleti kullan
+• Filtreleri üstte veya solda konumlandır
+• Karmaşık dashboard'ları tab'lara böl
+• Mobile uyumluluk için 24-grid sistemine dikkat et
+9.3 Performans İpuçları
+• Büyük tablolarda LIMIT kullan
+• Aggregation'ları veritabanında yap, UI'da değil
+• Sık kullanılan sorgular için cache_ttl ayarla
+• Karmaşık join'ler için materialized view oluştur
+• Dashboard'larda 10-15'ten fazla kart kullanma
+• Auto-refresh interval'ı ihtiyaca göre ayarla
+9.4 Semantic Type Kullanımı
+• Primary Key'lere type/PK ata
+• Foreign Key'lere type/FK ata ve ilişkiyi kur
+• E-posta alanlarına type/Email ata
+• Para alanlarına type/Currency ata
+• Filtre için kullanılacak alanlara type/Category ata
+• Coğrafi alanları doğru semantic type ile işaretle
+
+10. Hızlı Referans
+10.1 Tablo İlişkileri
+core_user ←→ permissions_group_membership ←→ permissions_group
+metabase_database → metabase_table → metabase_field → metabase_fieldvalues
+report_dashboard → report_dashboardcard → report_card
+pulse → pulse_channel → pulse_channel_recipient
+10.2 Sık Kullanılan Sorgular
+Aktif Dashboard Listesi:
+SELECT id, name, creator_id FROM report_dashboard WHERE archived = false ORDER BY created_at DESC;
+Question Kullanım Sıralaması:
+SELECT rc.name, COUNT(*) as exec_count FROM query_execution qe JOIN report_card rc ON qe.card_id = rc.id GROUP BY rc.id ORDER BY exec_count DESC LIMIT 20;
+Veritabanı Bazlı Tablo Sayıları:
+SELECT md.name, COUNT(mt.id) as table_count FROM metabase_database md LEFT JOIN metabase_table mt ON md.id = mt.db_id GROUP BY md.id ORDER BY table_count DESC;
+Son 7 Günlük Hata Analizi:
+SELECT DATE(started_at) as dt, COUNT(*) as total, SUM(CASE WHEN error IS NOT NULL THEN 1 ELSE 0 END) as errors FROM query_execution WHERE started_at > NOW() - INTERVAL '7 days' GROUP BY dt ORDER BY dt DESC;
+
+Bu döküman ETS Group BI/DWH ekibi tarafından hazırlanmıştır.
+Son Güncelleme: Ocak 2026 | Versiyon 1.0

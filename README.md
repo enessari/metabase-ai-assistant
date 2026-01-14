@@ -4,7 +4,7 @@
 [![Node.js](https://img.shields.io/badge/Node.js-18+-brightgreen.svg)](https://nodejs.org/)
 [![MCP Compatible](https://img.shields.io/badge/MCP-Compatible-blue.svg)](https://modelcontextprotocol.io/)
 
-**The most comprehensive MCP server for Metabase with 107 tools for AI-powered business intelligence.**
+**The most comprehensive MCP server for Metabase with 111 tools for AI-powered business intelligence.**
 
 An AI-powered Model Context Protocol (MCP) server that connects to Metabase and PostgreSQL databases. Generate SQL queries from natural language, create dashboards, manage users, and automate BI workflows with LLM integration.
 
@@ -33,7 +33,7 @@ An AI-powered Model Context Protocol (MCP) server that connects to Metabase and 
 ### MCP Server Integration
 - Native Model Context Protocol (MCP) server implementation
 - Compatible with AI assistants that support MCP
-- 107 tools for comprehensive Metabase control
+- 111 tools for comprehensive Metabase control
 - Direct PostgreSQL database connections
 - Hybrid connection management (API + Direct DB)
 
@@ -70,6 +70,30 @@ An AI-powered Model Context Protocol (MCP) server that connects to Metabase and 
 - Permission group management
 - Collection permissions
 - Role-based access control
+
+### 🆕 Metadata & Analytics (14 tools)
+
+**Phase 1: Core Analytics**
+- **Query Performance Analysis**: Execution times, cache hit rates, slow query detection
+- **Content Usage Insights**: Popular/unused questions & dashboards, orphaned cards
+- **User Activity Analytics**: Active/inactive users, login patterns, license optimization
+- **Database Usage Stats**: Query patterns by database and table
+- **Dashboard Complexity Analysis**: Identify optimization opportunities
+- **Metadata Overview**: Quick health check of your Metabase instance
+
+**Phase 2: Advanced Analytics**
+- **Table Dependencies**: Find all questions/dashboards depending on a table
+- **Impact Analysis**: Analyze breaking changes before table removal with severity assessment
+- **Optimization Recommendations**: Index suggestions, materialized view candidates, cache optimization
+- **Error Pattern Analysis**: Categorize recurring errors, identify problematic questions
+
+**Phase 3: Export/Import & Migration (🔒 Safety-First)**
+- **Workspace Export**: Backup collections, questions, and dashboards to JSON (READ-ONLY)
+- **Import Preview**: Dry-run impact analysis before importing (conflict detection, risk assessment)
+- **Environment Comparison**: Compare dev → staging → prod environments for drift detection (READ-ONLY)
+- **Auto-Cleanup**: Identify and remove unused content with safety checks (DRY-RUN by default, requires approval)
+
+*Powered by direct access to Metabase's application database*
 
 ### Additional Features
 - Metric and segment creation
@@ -119,6 +143,15 @@ METABASE_URL=http://your-metabase-instance.com
 METABASE_USERNAME=your_username
 METABASE_PASSWORD=your_password
 METABASE_API_KEY=your_api_key
+
+# Metabase Metadata Database (optional, for analytics features)
+MB_METADATA_ENABLED=true
+MB_METADATA_ENGINE=postgres
+MB_METADATA_HOST=localhost
+MB_METADATA_PORT=5432
+MB_METADATA_DATABASE=metabase
+MB_METADATA_USER=metabase_user
+MB_METADATA_PASSWORD=metabase_password
 
 # AI Provider (optional, for AI features)
 ANTHROPIC_API_KEY=your_anthropic_key
@@ -289,6 +322,64 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | node src/mcp
 }
 ```
 
+### Phase 3: Safe Workspace Management
+
+**Export Workspace (READ-ONLY - Always Safe):**
+```javascript
+// Tool: mb_meta_export_workspace
+{
+  "include_collections": true,
+  "include_questions": true,
+  "include_dashboards": true,
+  "collection_id": 5  // Optional: export specific collection only
+}
+// Returns: JSON with all workspace items for backup/migration
+```
+
+**Preview Import Impact (DRY-RUN - Always Safe):**
+```javascript
+// Tool: mb_meta_import_preview
+{
+  "workspace_json": { /* exported workspace JSON */ }
+}
+// Returns: Conflict detection, risk assessment, recommendations
+// ⚠️ ALWAYS run this before actual import!
+```
+
+**Compare Environments (READ-ONLY - Always Safe):**
+```javascript
+// Tool: mb_meta_compare_environments
+{
+  "target_workspace_json": { /* production workspace JSON */ }
+}
+// Returns: Missing items, differences, drift level
+// Use case: Compare dev → staging → production
+```
+
+**Auto-Cleanup with Safety (REQUIRES APPROVAL):**
+```javascript
+// Step 1: DRY-RUN (Preview Only - Default)
+// Tool: mb_meta_auto_cleanup
+{
+  "dry_run": true,        // Default: true (preview only)
+  "approved": false,      // Default: false (no execution)
+  "unused_days": 180      // Items not viewed in 6 months
+}
+// Returns: List of items to be cleaned, safety checks
+
+// Step 2: Execute (Only after reviewing dry-run results)
+// Tool: mb_meta_auto_cleanup
+{
+  "dry_run": false,       // ⚠️ EXECUTE MODE
+  "approved": true,       // ⚠️ EXPLICIT APPROVAL REQUIRED
+  "unused_days": 180,
+  "orphaned_cards": true,
+  "empty_collections": true,
+  "broken_questions": true
+}
+// ⚠️ Always export workspace before executing!
+```
+
 ---
 
 ## Security
@@ -302,6 +393,45 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | node src/mcp
 - AI-created objects use `claude_ai_` prefix
 - DDL operations require explicit approval
 - Dry-run mode enabled by default
+
+### Phase 3 Safety Features
+
+**Export/Import Safety:**
+- **Export (READ-ONLY)**: No modifications to your instance, safe to run anytime
+- **Import Preview (DRY-RUN)**: Always preview before importing
+  - Conflict detection (name collisions, duplicate IDs)
+  - Risk assessment (HIGH/MEDIUM/LOW)
+  - Severity-based warnings with recommendations
+  - Backup reminder before execution
+
+**Environment Comparison Safety:**
+- **READ-ONLY Operation**: No changes made during comparison
+- **Drift Detection**: Identifies missing or different items between environments
+- **Promotion Workflow**: Supports dev → staging → production workflow
+
+**Auto-Cleanup Safety (Multi-Layer Protection):**
+1. **Default Dry-Run Mode**: `dry_run: true` by default (preview only)
+2. **Explicit Approval Required**: Must set `approved: true` to execute
+3. **Dual-Lock System**: Both `dry_run: false` AND `approved: true` required
+4. **Backup Recommendation**: Always prompts for backup before execution
+5. **Configurable Thresholds**:
+   - Unused content: default 180 days (adjustable)
+   - Orphaned cards: optional toggle
+   - Empty collections: optional toggle
+   - Broken questions: >50% error rate threshold
+6. **Safety Checks Report**:
+   - Verify backup created
+   - Check for critical items
+   - Validate cleanup scope
+   - Warning if total items > threshold
+7. **Execution Blocking**: Automatically blocks if approval not given
+
+**Best Practices:**
+- Always run dry-run first to review items
+- Export workspace before any destructive operation
+- Review all warnings and recommendations
+- Test import in non-production environment first
+- Regular environment comparisons to detect drift early
 
 ### Audit and Compliance
 - Activity logging for all operations
@@ -460,13 +590,15 @@ This implementation provides the most comprehensive Metabase MCP integration ava
 
 | Feature | This Project | Others |
 |---------|-------------|--------|
-| Total Tools | 107 | 20-30 |
+| Total Tools | 111 | 20-30 |
 | User Management | Yes | Limited |
 | Direct DDL | Yes | No |
 | AI SQL Generation | Yes | No |
 | Dashboard Templates | Yes | No |
 | Activity Logging | Yes | No |
 | Parametric Questions | Yes | No |
+| Workspace Export/Import | Yes | No |
+| Environment Comparison | Yes | No |
 
 ---
 
