@@ -1,0 +1,85 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.enessari/metabase-ai-assistant",
+  "description": "MCP Server for Metabase - 111 tools for SQL generation, dashboards & PostgreSQL",
+  "repository": {
+    "url": "https://github.com/enessari/metabase-ai-assistant",
+    "source": "github"
+  },
+  "version": "3.2.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "metabase-ai-assistant",
+      "version": "3.2.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "METABASE_URL",
+          "description": "Metabase instance URL (e.g., http://localhost:3000)",
+          "isRequired": true,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "METABASE_USERNAME",
+          "description": "Metabase username for authentication",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "METABASE_PASSWORD",
+          "description": "Metabase password for authentication",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "METABASE_API_KEY",
+          "description": "Metabase API key (alternative to username/password)",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
+        },
+        {
+          "name": "DATABASE_HOST",
+          "description": "PostgreSQL database host for direct SQL execution",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "DATABASE_PORT",
+          "description": "PostgreSQL database port",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "DATABASE_NAME",
+          "description": "PostgreSQL database name",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "DATABASE_USER",
+          "description": "PostgreSQL database user",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": false
+        },
+        {
+          "name": "DATABASE_PASSWORD",
+          "description": "PostgreSQL database password",
+          "isRequired": false,
+          "format": "string",
+          "isSecret": true
+        }
+      ]
+    }
+  ]
+}
