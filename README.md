@@ -1,5 +1,7 @@
 # Metabase AI Assistant
 
+[![npm version](https://img.shields.io/npm/v/metabase-ai-assistant.svg)](https://www.npmjs.com/package/metabase-ai-assistant)
+[![MCP Registry](https://img.shields.io/badge/MCP%20Registry-io.github.enessari-blue.svg)](https://github.com/modelcontextprotocol/servers)
 [![Apache 2.0 License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Node.js](https://img.shields.io/badge/Node.js-18+-brightgreen.svg)](https://nodejs.org/)
 [![MCP Compatible](https://img.shields.io/badge/MCP-Compatible-blue.svg)](https://modelcontextprotocol.io/)
@@ -113,11 +115,22 @@ An AI-powered Model Context Protocol (MCP) server that connects to Metabase and 
 - Metabase instance (v0.48+)
 - PostgreSQL database (for direct connections)
 
-### Quick Start
+### Quick Start with npm (Recommended)
+
+```bash
+# Run directly with npx (no installation needed)
+npx metabase-ai-assistant
+
+# Or install globally
+npm install -g metabase-ai-assistant
+metabase-ai-assistant
+```
+
+### Install from Source
 
 ```bash
 # Clone the repository
-git clone https://github.com/onmartech/metabase-ai-assistant.git
+git clone https://github.com/enessari/metabase-ai-assistant.git
 cd metabase-ai-assistant
 
 # Install dependencies
@@ -168,16 +181,24 @@ NODE_ENV=production
 
 ## MCP Integration
 
+### MCP Registry
+
+This server is published to the official MCP Registry:
+
+```
+io.github.enessari/metabase-ai-assistant
+```
+
 ### Configuration for AI Assistants
 
-Add the following to your MCP client configuration:
+Add the following to your MCP client configuration (Claude Desktop, Cursor, etc.):
 
 ```json
 {
   "mcpServers": {
     "metabase": {
-      "command": "node",
-      "args": ["/path/to/metabase-ai-assistant/src/mcp/server.js"],
+      "command": "npx",
+      "args": ["-y", "metabase-ai-assistant"],
       "env": {
         "METABASE_URL": "http://your-metabase-instance.com",
         "METABASE_USERNAME": "your_username",
@@ -620,7 +641,7 @@ Copyright 2024-2026 ONMARTECH LLC
 
 **Abdullah Enes SARI**
 - Company: ONMARTECH LLC
-- GitHub: [@onmartech](https://github.com/onmartech)
+- GitHub: [@enessari](https://github.com/enessari)
 
 ---
 
@@ -634,6 +655,7 @@ Copyright 2024-2026 ONMARTECH LLC
 
 ## Support
 
-- GitHub Issues: [Report bugs](https://github.com/onmartech/metabase-ai-assistant/issues)
-- Documentation: [Wiki](https://github.com/onmartech/metabase-ai-assistant/wiki)
+- GitHub Issues: [Report bugs](https://github.com/enessari/metabase-ai-assistant/issues)
+- Documentation: [Wiki](https://github.com/enessari/metabase-ai-assistant/wiki)
+- npm Package: [metabase-ai-assistant](https://www.npmjs.com/package/metabase-ai-assistant)
 - Commercial Support: contact@onmartech.com

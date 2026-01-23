@@ -64,3 +64,6 @@ ecosystem.config.js.backup
 # Production logs
 logs/
 *.log
+# MCP Publisher tokens
+.mcpregistry_*
+mcp-publisher
