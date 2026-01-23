@@ -8,7 +8,7 @@ import { logger } from '../utils/logger.js';
  * Connects to Metabase's application database to query metadata, analytics,
  * and usage statistics. This client is READ-ONLY for security.
  *
- * Based on: Metabase Internal Database Reference Guide (ETS Group)
+ * Based on: Metabase Internal Database Reference Guide (ONMARTECH LLC)
  */
 export class MetabaseMetadataClient {
   constructor(config) {

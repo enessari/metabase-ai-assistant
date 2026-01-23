@@ -5,7 +5,7 @@ REFERENCE GUIDE
 
 Question, Dashboard ve Visualization Oluşturma Rehberi
 
-ETS Group - Technology / BI-DWH Team
+ONMARTECH LLC
 Versiyon 1.0 | Ocak 2026
 
 İçindekiler
@@ -843,5 +843,5 @@ SELECT md.name, COUNT(mt.id) as table_count FROM metabase_database md LEFT JOIN 
 Son 7 Günlük Hata Analizi:
 SELECT DATE(started_at) as dt, COUNT(*) as total, SUM(CASE WHEN error IS NOT NULL THEN 1 ELSE 0 END) as errors FROM query_execution WHERE started_at > NOW() - INTERVAL '7 days' GROUP BY dt ORDER BY dt DESC;
 
-Bu döküman ETS Group BI/DWH ekibi tarafından hazırlanmıştır.
+Bu döküman ONMARTECH LLC tarafından hazırlanmıştır.
 Son Güncelleme: Ocak 2026 | Versiyon 1.0

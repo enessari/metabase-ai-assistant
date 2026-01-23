@@ -1,6 +1,6 @@
 {
   "name": "metabase-ai-assistant",
-  "version": "2.0.0",
+  "version": "3.1.0",
   "description": "Comprehensive MCP Server for Metabase with 107 tools - AI-powered SQL generation, dashboard management, and PostgreSQL integration for LLM assistants",
   "main": "src/index.js",
   "type": "module",
@@ -45,13 +45,20 @@
   ],
   "author": "Abdullah Enes SARI <contact@onmartech.com> (ONMARTECH LLC)",
   "license": "Apache-2.0",
+  "files": [
+    "src/",
+    "README.md",
+    "README_MCP.md",
+    "LICENSE",
+    ".env.example"
+  ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/onmartech/metabase-ai-assistant.git"
+    "url": "https://github.com/enessari/metabase-ai-assistant.git"
   },
-  "homepage": "https://github.com/onmartech/metabase-ai-assistant#readme",
+  "homepage": "https://github.com/enessari/metabase-ai-assistant#readme",
   "bugs": {
-    "url": "https://github.com/onmartech/metabase-ai-assistant/issues"
+    "url": "https://github.com/enessari/metabase-ai-assistant/issues"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.17.0",

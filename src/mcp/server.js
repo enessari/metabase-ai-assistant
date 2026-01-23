@@ -5063,7 +5063,7 @@ class MetabaseMCPServer {
         output += `\\n💡 **Next Steps:**\\n`;
         output += `- Use 'execute_sql' for detailed column info\\n`;
         output += `- Try 'db_schema_analyze' for advanced analysis\\n`;
-        output += `- Check other schemas: etsbi, cron, pgprime`;
+        output += `- Check other schemas: analytics, cron, staging`;
       } else {
         output += `No tables found in schema '${args.schema_name}'.`;
       }
