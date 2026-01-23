@@ -1,0 +1,19 @@
+{
+  "mcpServers": {
+    "metabase-ai-assistant": {
+      "command": "npx",
+      "args": ["-y", "metabase-ai-assistant"],
+      "env": {
+        "METABASE_URL": "${METABASE_URL}",
+        "METABASE_USERNAME": "${METABASE_USERNAME}",
+        "METABASE_PASSWORD": "${METABASE_PASSWORD}",
+        "METABASE_API_KEY": "${METABASE_API_KEY}",
+        "DATABASE_HOST": "${DATABASE_HOST}",
+        "DATABASE_PORT": "${DATABASE_PORT}",
+        "DATABASE_NAME": "${DATABASE_NAME}",
+        "DATABASE_USER": "${DATABASE_USER}",
+        "DATABASE_PASSWORD": "${DATABASE_PASSWORD}"
+      }
+    }
+  }
+}

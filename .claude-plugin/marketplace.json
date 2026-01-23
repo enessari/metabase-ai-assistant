@@ -1,18 +1,26 @@
 {
   "name": "metabase-ai-assistant",
-  "description": "MCP Server for Metabase - 111 tools for SQL generation, dashboard management, and PostgreSQL integration",
-  "version": "3.2.0",
+  "owner": {
+    "name": "ONMARTECH LLC",
+    "email": "contact@onmartech.com"
+  },
+  "metadata": {
+    "description": "MCP Server for Metabase - 111 tools for SQL generation, dashboard management, and PostgreSQL integration",
+    "version": "3.2.0",
+    "homepage": "https://github.com/enessari/metabase-ai-assistant"
+  },
   "plugins": [
     {
       "name": "metabase-ai-assistant",
+      "source": ".",
       "description": "MCP Server for Metabase with 111 tools for AI-powered SQL generation, dashboard management, and PostgreSQL integration",
       "version": "3.2.0",
-      "repository": "https://github.com/enessari/metabase-ai-assistant",
       "author": {
         "name": "Abdullah Enes SARI",
         "email": "contact@onmartech.com"
       },
-      "license": "Apache-2.0",
+      "category": "Data Analytics",
+      "homepage": "https://github.com/enessari/metabase-ai-assistant",
       "keywords": [
         "metabase",
         "database",
@@ -21,20 +29,7 @@
         "dashboard",
         "analytics",
         "mcp"
-      ],
-      "mcp": {
-        "servers": {
-          "metabase-ai-assistant": {
-            "command": "npx",
-            "args": ["-y", "metabase-ai-assistant"],
-            "env": {
-              "METABASE_URL": "${METABASE_URL}",
-              "METABASE_USERNAME": "${METABASE_USERNAME}",
-              "METABASE_PASSWORD": "${METABASE_PASSWORD}"
-            }
-          }
-        }
-      }
+      ]
     }
   ]
 }
