@@ -1,0 +1,61 @@
+runtime: "node"
+startCommand:
+  type: "stdio"
+  configSchema:
+    type: "object"
+    properties:
+      METABASE_URL:
+        type: "string"
+        description: "Metabase instance URL"
+      METABASE_USERNAME:
+        type: "string"
+        description: "Metabase username"
+      METABASE_PASSWORD:
+        type: "string"
+        description: "Metabase password"
+      METABASE_API_KEY:
+        type: "string"
+        description: "Metabase API key (alternative to username/password)"
+      DATABASE_HOST:
+        type: "string"
+        description: "PostgreSQL database host"
+      DATABASE_PORT:
+        type: "string"
+        description: "PostgreSQL database port"
+      DATABASE_NAME:
+        type: "string"
+        description: "PostgreSQL database name"
+      DATABASE_USER:
+        type: "string"
+        description: "PostgreSQL database user"
+      DATABASE_PASSWORD:
+        type: "string"
+        description: "PostgreSQL database password"
+    required:
+      - "METABASE_URL"
+  commandFunction: |
+    (config) => ({
+      command: "npx",
+      args: ["-y", "metabase-ai-assistant"],
+      env: {
+        METABASE_URL: config.METABASE_URL,
+        METABASE_USERNAME: config.METABASE_USERNAME || "",
+        METABASE_PASSWORD: config.METABASE_PASSWORD || "",
+        METABASE_API_KEY: config.METABASE_API_KEY || "",
+        DATABASE_HOST: config.DATABASE_HOST || "",
+        DATABASE_PORT: config.DATABASE_PORT || "5432",
+        DATABASE_NAME: config.DATABASE_NAME || "",
+        DATABASE_USER: config.DATABASE_USER || "",
+        DATABASE_PASSWORD: config.DATABASE_PASSWORD || ""
+      }
+    })
+description: "MCP Server for Metabase - 111 tools for SQL generation, dashboards & PostgreSQL"
+tags:
+  - "metabase"
+  - "database"
+  - "postgresql"
+  - "sql"
+  - "dashboard"
+  - "analytics"
+  - "business-intelligence"
+  - "mcp"
