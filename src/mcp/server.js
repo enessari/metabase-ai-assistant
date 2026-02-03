@@ -3504,6 +3504,30 @@ class MetabaseMCPServer {
     if (this.initError) {
       throw new McpError(ErrorCode.InternalError, `Failed to initialize: ${this.initError.message}`);
     }
+
+    // Read-Only Mode Security Check
+    const isReadOnlyMode = process.env.METABASE_READ_ONLY_MODE !== 'false';
+    if (isReadOnlyMode) {
+      const writePattern = /\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER|CREATE|GRANT|REVOKE|EXEC|EXECUTE)\b/i;
+      if (writePattern.test(sql)) {
+        const blockedOperation = sql.match(writePattern)?.[0]?.toUpperCase() || 'WRITE';
+        logger.warn(`Read-only mode: Blocked ${blockedOperation} operation`, { sql: sql.substring(0, 100) });
+        
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `🔒 **Read-Only Mode Active**\\n\\n` +
+                    `⛔ **Operation Blocked:** \`${blockedOperation}\`\\n\\n` +
+                    `This MCP server is running in read-only mode for security.\\n` +
+                    `Write operations (INSERT, UPDATE, DELETE, DROP, etc.) are not allowed.\\n\\n` +
+                    `To enable write operations, set \`METABASE_READ_ONLY_MODE=false\` in your environment.\\n\\n` +
+                    `🔍 **Attempted Query:**\\n\`\`\`sql\\n${sql.substring(0, 200)}${sql.length > 200 ? '...' : ''}\\n\`\`\``,
+            },
+          ],
+        };
+      }
+    }
     
     const startTime = Date.now();
     let result = null;
