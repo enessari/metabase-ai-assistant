@@ -67,3 +67,4 @@ logs/
 # MCP Publisher tokens
 .mcpregistry_*
 mcp-publisher
+.npmrc
