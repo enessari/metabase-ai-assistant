@@ -18,6 +18,26 @@ import { logger } from '../utils/logger.js';
 import dotenv from 'dotenv';
 import he from 'he';
 
+// Handler modules
+import {
+  createHandlerContext,
+  isReadOnlyMode,
+  detectWriteOperation,
+} from './handlers/index.js';
+
+// Utils
+import { CacheManager, CacheKeys, globalCache } from '../utils/cache.js';
+import { config as appConfig } from '../utils/config.js';
+import {
+  ResponseFormat,
+  formatListResponse,
+  formatSQLResult,
+  minimalDatabase,
+  minimalTable,
+  minimalDashboard,
+  minimalQuestion,
+} from '../utils/response-optimizer.js';
+
 // Load environment variables
 dotenv.config();
 
@@ -40,7 +60,27 @@ class MetabaseMCPServer {
     this.aiAssistant = null;
     this.connectionManager = new ConnectionManager();
     this.activityLogger = null;
+
+    // Cache manager with configurable TTL
+    this.cache = new CacheManager({
+      ttl: parseInt(process.env.CACHE_TTL_MS) || 600000 // 10 minutes default
+    });
+
     this.setupHandlers();
+  }
+
+  /**
+   * Get handler context for modular handlers
+   */
+  getHandlerContext() {
+    return {
+      metabaseClient: this.metabaseClient,
+      aiAssistant: this.aiAssistant,
+      activityLogger: this.activityLogger,
+      metadataClient: this.metadataClient,
+      connectionManager: this.connectionManager,
+      cache: this.cache,
+    };
   }
 
   async initialize() {
@@ -48,7 +88,7 @@ class MetabaseMCPServer {
     if (this.metabaseClient) {
       return;
     }
-    
+
     try {
       // Initialize Metabase client
       this.metabaseClient = new MetabaseClient({
@@ -403,7 +443,7 @@ class MetabaseMCPServer {
                       default: 0
                     },
                     col: {
-                      type: 'number', 
+                      type: 'number',
                       description: 'Grid column position (0-based)',
                       default: 0
                     },
@@ -430,7 +470,7 @@ class MetabaseMCPServer {
                         description: 'Dashboard filter ID'
                       },
                       question_parameter_id: {
-                        type: 'string', 
+                        type: 'string',
                         description: 'Question parameter ID to map to'
                       }
                     }
@@ -1139,7 +1179,7 @@ class MetabaseMCPServer {
                       source_column: { type: 'string' },
                       target_table: { type: 'string' },
                       target_column: { type: 'string' },
-                      relationship_type: { 
+                      relationship_type: {
                         type: 'string',
                         enum: ['one-to-many', 'many-to-one', 'one-to-one', 'many-to-many']
                       },
@@ -1285,1810 +1325,1810 @@ class MetabaseMCPServer {
             },
           },
 
-        // === DEFINITION TABLES & PARAMETRIC QUESTIONS ===
-        {
-          name: 'definition_tables_init',
-          description: 'Initialize definition lookup tables system for documentation, metrics, templates, and search',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              database_id: {
-                type: 'number',
-                description: 'Database ID to create definition tables in'
-              }
-            },
-            required: ['database_id']
-          }
-        },
-        {
-          name: 'definition_search_terms',
-          description: 'Search business terms and definitions with relevance ranking',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              database_id: {
-                type: 'number',
-                description: 'Database ID to search in'
-              },
-              search_term: {
-                type: 'string',
-                description: 'Term to search for in definitions'
-              },
-              category: {
-                type: 'string',
-                description: 'Optional category filter (customer_metrics, revenue_metrics, etc.)'
-              }
-            },
-            required: ['database_id', 'search_term']
-          }
-        },
-        {
-          name: 'definition_get_metric',
-          description: 'Get metric definition with calculation formula and business context',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              database_id: {
-                type: 'number',
-                description: 'Database ID to search in'
-              },
-              metric_name: {
-                type: 'string',
-                description: 'Metric name to lookup'
-              }
-            },
-            required: ['database_id', 'metric_name']
-          }
-        },
-        {
-          name: 'definition_get_template',
-          description: 'Get dashboard or question template with layout and configuration',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              database_id: {
-                type: 'number',
-                description: 'Database ID to search in'
-              },
-              template_name: {
-                type: 'string',
-                description: 'Template name to lookup'
-              },
-              template_type: {
-                type: 'string',
-                enum: ['dashboard', 'question'],
-                description: 'Type of template to retrieve'
-              }
-            },
-            required: ['database_id', 'template_name', 'template_type']
-          }
-        },
-        {
-          name: 'definition_global_search',
-          description: 'Search across all definition tables with unified results',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              database_id: {
-                type: 'number',
-                description: 'Database ID to search in'
-              },
-              search_term: {
-                type: 'string',
-                description: 'Term to search across all definitions'
-              },
-              content_types: {
-                type: 'array',
-                items: { type: 'string' },
-                description: 'Filter by content types (business_terms, metrics, templates, etc.)'
-              }
-            },
-            required: ['database_id', 'search_term']
-          }
-        },
-        {
-          name: 'parametric_question_create',
-          description: 'Create parametric question with date, text search, and category filters',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              database_id: {
-                type: 'number',
-                description: 'Database ID to create question in'
-              },
-              name: {
-                type: 'string',
-                description: 'Question name'
-              },
-              description: {
-                type: 'string',
-                description: 'Question description'
-              },
-              sql_template: {
-                type: 'string',
-                description: 'SQL template with parameter placeholders (e.g., {{date_range}}, {{search_term}})'
-              },
-              parameters: {
-                type: 'object',
-                description: 'Parameter definitions with types and defaults',
-                additionalProperties: {
-                  type: 'object',
-                  properties: {
-                    type: {
-                      type: 'string',
-                      enum: ['date/single', 'date/range', 'date/relative', 'string/=', 'string/contains', 'number/=', 'number/between', 'category']
-                    },
-                    display_name: { type: 'string' },
-                    required: { type: 'boolean', default: false },
-                    default: { type: 'string' },
-                    field_id: { type: 'number' },
-                    options: { type: 'array', items: { type: 'string' } }
-                  }
+          // === DEFINITION TABLES & PARAMETRIC QUESTIONS ===
+          {
+            name: 'definition_tables_init',
+            description: 'Initialize definition lookup tables system for documentation, metrics, templates, and search',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                database_id: {
+                  type: 'number',
+                  description: 'Database ID to create definition tables in'
                 }
               },
-              question_type: {
-                type: 'string',
-                enum: ['trend_analysis', 'comparison', 'ranking', 'distribution', 'kpi', 'table'],
-                default: 'table'
-              },
-              collection_id: {
-                type: 'number',
-                description: 'Collection ID to save question to'
-              }
-            },
-            required: ['database_id', 'name', 'sql_template', 'parameters']
-          }
-        },
-        {
-          name: 'parametric_dashboard_create',
-          description: 'Create dashboard with parametric questions and shared filters',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              database_id: {
-                type: 'number',
-                description: 'Database ID to create dashboard in'
-              },
-              name: {
-                type: 'string',
-                description: 'Dashboard name'
-              },
-              description: {
-                type: 'string',
-                description: 'Dashboard description'
-              },
-              questions: {
-                type: 'array',
-                description: 'Array of question configurations',
-                items: {
-                  type: 'object',
-                  properties: {
-                    name: { type: 'string' },
-                    sql_template: { type: 'string' },
-                    parameters: { type: 'object' },
-                    question_type: { type: 'string' }
-                  }
-                }
-              },
-              filters: {
-                type: 'object',
-                description: 'Dashboard-level filters',
-                additionalProperties: {
-                  type: 'object',
-                  properties: {
-                    type: { type: 'string' },
-                    display_name: { type: 'string' },
-                    default: { type: 'string' },
-                    required: { type: 'boolean' }
-                  }
-                }
-              },
-              layout: {
-                type: 'array',
-                description: 'Layout configuration for questions'
-              },
-              collection_id: {
-                type: 'number',
-                description: 'Collection ID to save dashboard to'
-              }
-            },
-            required: ['database_id', 'name', 'questions']
-          }
-        },
-        {
-          name: 'parametric_template_preset',
-          description: 'Create parametric question from preset templates (date range analysis, category filter, text search, period comparison)',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              database_id: {
-                type: 'number',
-                description: 'Database ID to create question in'
-              },
-              preset_type: {
-                type: 'string',
-                enum: ['date_range_analysis', 'category_filter', 'text_search', 'period_comparison'],
-                description: 'Preset template type'
-              },
-              config: {
-                type: 'object',
-                description: 'Configuration for the preset template',
-                properties: {
-                  name: { type: 'string' },
-                  table: { type: 'string' },
-                  date_column: { type: 'string' },
-                  category_column: { type: 'string' },
-                  search_columns: { type: 'array', items: { type: 'string' } },
-                  metrics: { type: 'array', items: { type: 'string' } },
-                  date_field_id: { type: 'number' },
-                  category_field_id: { type: 'number' }
-                }
-              },
-              collection_id: {
-                type: 'number',
-                description: 'Collection ID to save question to'
-              }
-            },
-            required: ['database_id', 'preset_type', 'config']
-          }
-        },
-
-        // === DATABASE MAINTENANCE & QUERY ANALYSIS ===
-        {
-          name: 'db_vacuum_analyze',
-          description: 'Run VACUUM and ANALYZE on PostgreSQL tables to optimize storage and update statistics (PostgreSQL only)',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              database_id: {
-                type: 'number',
-                description: 'Database ID'
-              },
-              table_name: {
-                type: 'string',
-                description: 'Table name to vacuum/analyze (optional, all tables if not specified)'
-              },
-              schema_name: {
-                type: 'string',
-                description: 'Schema name (default: public)',
-                default: 'public'
-              },
-              vacuum_type: {
-                type: 'string',
-                enum: ['vacuum', 'vacuum_analyze', 'vacuum_full', 'analyze_only'],
-                description: 'Type of maintenance operation',
-                default: 'vacuum_analyze'
-              },
-              dry_run: {
-                type: 'boolean',
-                description: 'Preview command without executing',
-                default: true
-              }
-            },
-            required: ['database_id']
-          }
-        },
-        {
-          name: 'db_query_explain',
-          description: 'Get execution plan for a SQL query - shows how PostgreSQL will execute the query',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              database_id: {
-                type: 'number',
-                description: 'Database ID'
-              },
-              sql: {
-                type: 'string',
-                description: 'SQL query to analyze'
-              },
-              analyze: {
-                type: 'boolean',
-                description: 'Actually run the query to get real execution times',
-                default: false
-              },
-              format: {
-                type: 'string',
-                enum: ['text', 'json', 'yaml'],
-                description: 'Output format for the plan',
-                default: 'text'
-              },
-              verbose: {
-                type: 'boolean',
-                description: 'Include additional details in the plan',
-                default: false
-              }
-            },
-            required: ['database_id', 'sql']
-          }
-        },
-        {
-          name: 'db_table_stats',
-          description: 'Get table statistics including row count, size, dead tuples, last vacuum/analyze times',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              database_id: {
-                type: 'number',
-                description: 'Database ID'
-              },
-              table_name: {
-                type: 'string',
-                description: 'Table name to get stats for'
-              },
-              schema_name: {
-                type: 'string',
-                description: 'Schema name (default: public)',
-                default: 'public'
-              }
-            },
-            required: ['database_id', 'table_name']
-          }
-        },
-        {
-          name: 'db_index_usage',
-          description: 'Analyze index usage statistics - find unused or rarely used indexes',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              database_id: {
-                type: 'number',
-                description: 'Database ID'
-              },
-              schema_name: {
-                type: 'string',
-                description: 'Schema name to analyze (default: public)',
-                default: 'public'
-              },
-              min_size_mb: {
-                type: 'number',
-                description: 'Minimum index size in MB to include',
-                default: 0
-              }
-            },
-            required: ['database_id']
-          }
-        },
-
-        // === VISUALIZATION SETTINGS ===
-        {
-          name: 'mb_visualization_settings',
-          description: 'Get or update visualization settings for a question (chart type, colors, labels, etc.)',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              question_id: {
-                type: 'number',
-                description: 'Question ID to get/update visualization for'
-              },
-              display: {
-                type: 'string',
-                enum: ['table', 'bar', 'line', 'area', 'pie', 'scalar', 'row', 'funnel', 'scatter', 'map', 'gauge', 'progress', 'waterfall', 'combo'],
-                description: 'Chart display type'
-              },
-              settings: {
-                type: 'object',
-                description: 'Visualization settings object',
-                properties: {
-                  'graph.dimensions': { type: 'array', description: 'Dimension fields' },
-                  'graph.metrics': { type: 'array', description: 'Metric fields' },
-                  'graph.colors': { type: 'array', description: 'Custom colors' },
-                  'graph.x_axis.title_text': { type: 'string' },
-                  'graph.y_axis.title_text': { type: 'string' },
-                  'graph.show_values': { type: 'boolean' },
-                  'graph.label_value_frequency': { type: 'string' },
-                  'pie.show_legend': { type: 'boolean' },
-                  'pie.show_total': { type: 'boolean' },
-                  'table.pivot': { type: 'boolean' },
-                  'table.cell_column': { type: 'string' }
-                }
-              }
-            },
-            required: ['question_id']
-          }
-        },
-        {
-          name: 'mb_visualization_recommend',
-          description: 'AI-powered visualization recommendation based on query results and data types',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              question_id: {
-                type: 'number',
-                description: 'Question ID to analyze'
-              },
-              data_sample: {
-                type: 'object',
-                description: 'Sample data to analyze (optional if question_id provided)'
-              },
-              purpose: {
-                type: 'string',
-                enum: ['comparison', 'trend', 'distribution', 'composition', 'relationship', 'kpi'],
-                description: 'Purpose of the visualization'
-              }
-            },
-            required: ['question_id']
-          }
-        },
-
-        // === COLLECTION MANAGEMENT ===
-        {
-          name: 'mb_collection_create',
-          description: 'Create a new collection in Metabase for organizing questions and dashboards',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              name: {
-                type: 'string',
-                description: 'Collection name'
-              },
-              description: {
-                type: 'string',
-                description: 'Collection description'
-              },
-              parent_id: {
-                type: 'number',
-                description: 'Parent collection ID (null for root level)'
-              },
-              color: {
-                type: 'string',
-                description: 'Collection color (hex code)',
-                default: '#509EE3'
-              }
-            },
-            required: ['name']
-          }
-        },
-        {
-          name: 'mb_collection_list',
-          description: 'List all collections with hierarchy and item counts',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              parent_id: {
-                type: 'number',
-                description: 'Filter by parent collection ID (null for root)'
-              },
-              include_items: {
-                type: 'boolean',
-                description: 'Include items in each collection',
-                default: false
-              }
+              required: ['database_id']
             }
-          }
-        },
-        {
-          name: 'mb_collection_move',
-          description: 'Move questions, dashboards, or collections to a different collection',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              item_type: {
-                type: 'string',
-                enum: ['card', 'dashboard', 'collection'],
-                description: 'Type of item to move'
+          },
+          {
+            name: 'definition_search_terms',
+            description: 'Search business terms and definitions with relevance ranking',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                database_id: {
+                  type: 'number',
+                  description: 'Database ID to search in'
+                },
+                search_term: {
+                  type: 'string',
+                  description: 'Term to search for in definitions'
+                },
+                category: {
+                  type: 'string',
+                  description: 'Optional category filter (customer_metrics, revenue_metrics, etc.)'
+                }
               },
-              item_id: {
-                type: 'number',
-                description: 'ID of the item to move'
+              required: ['database_id', 'search_term']
+            }
+          },
+          {
+            name: 'definition_get_metric',
+            description: 'Get metric definition with calculation formula and business context',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                database_id: {
+                  type: 'number',
+                  description: 'Database ID to search in'
+                },
+                metric_name: {
+                  type: 'string',
+                  description: 'Metric name to lookup'
+                }
               },
-              target_collection_id: {
-                type: 'number',
-                description: 'Target collection ID (null for root)'
-              }
-            },
-            required: ['item_type', 'item_id', 'target_collection_id']
-          }
-        },
-
-        // === METABASE ACTIONS API ===
-        {
-          name: 'mb_action_create',
-          description: 'Create a Metabase Action for data modification (INSERT, UPDATE, DELETE)',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              name: {
-                type: 'string',
-                description: 'Action name'
+              required: ['database_id', 'metric_name']
+            }
+          },
+          {
+            name: 'definition_get_template',
+            description: 'Get dashboard or question template with layout and configuration',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                database_id: {
+                  type: 'number',
+                  description: 'Database ID to search in'
+                },
+                template_name: {
+                  type: 'string',
+                  description: 'Template name to lookup'
+                },
+                template_type: {
+                  type: 'string',
+                  enum: ['dashboard', 'question'],
+                  description: 'Type of template to retrieve'
+                }
               },
-              description: {
-                type: 'string',
-                description: 'Action description'
+              required: ['database_id', 'template_name', 'template_type']
+            }
+          },
+          {
+            name: 'definition_global_search',
+            description: 'Search across all definition tables with unified results',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                database_id: {
+                  type: 'number',
+                  description: 'Database ID to search in'
+                },
+                search_term: {
+                  type: 'string',
+                  description: 'Term to search across all definitions'
+                },
+                content_types: {
+                  type: 'array',
+                  items: { type: 'string' },
+                  description: 'Filter by content types (business_terms, metrics, templates, etc.)'
+                }
               },
-              model_id: {
-                type: 'number',
-                description: 'Model ID the action belongs to'
-              },
-              type: {
-                type: 'string',
-                enum: ['query', 'implicit'],
-                description: 'Action type',
-                default: 'query'
-              },
-              database_id: {
-                type: 'number',
-                description: 'Database ID for query actions'
-              },
-              dataset_query: {
-                type: 'object',
-                description: 'Query definition for query actions',
-                properties: {
-                  native: {
+              required: ['database_id', 'search_term']
+            }
+          },
+          {
+            name: 'parametric_question_create',
+            description: 'Create parametric question with date, text search, and category filters',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                database_id: {
+                  type: 'number',
+                  description: 'Database ID to create question in'
+                },
+                name: {
+                  type: 'string',
+                  description: 'Question name'
+                },
+                description: {
+                  type: 'string',
+                  description: 'Question description'
+                },
+                sql_template: {
+                  type: 'string',
+                  description: 'SQL template with parameter placeholders (e.g., {{date_range}}, {{search_term}})'
+                },
+                parameters: {
+                  type: 'object',
+                  description: 'Parameter definitions with types and defaults',
+                  additionalProperties: {
                     type: 'object',
                     properties: {
-                      query: { type: 'string', description: 'SQL query with {{parameter}} placeholders' },
-                      template_tags: { type: 'object', description: 'Parameter definitions' }
+                      type: {
+                        type: 'string',
+                        enum: ['date/single', 'date/range', 'date/relative', 'string/=', 'string/contains', 'number/=', 'number/between', 'category']
+                      },
+                      display_name: { type: 'string' },
+                      required: { type: 'boolean', default: false },
+                      default: { type: 'string' },
+                      field_id: { type: 'number' },
+                      options: { type: 'array', items: { type: 'string' } }
+                    }
+                  }
+                },
+                question_type: {
+                  type: 'string',
+                  enum: ['trend_analysis', 'comparison', 'ranking', 'distribution', 'kpi', 'table'],
+                  default: 'table'
+                },
+                collection_id: {
+                  type: 'number',
+                  description: 'Collection ID to save question to'
+                }
+              },
+              required: ['database_id', 'name', 'sql_template', 'parameters']
+            }
+          },
+          {
+            name: 'parametric_dashboard_create',
+            description: 'Create dashboard with parametric questions and shared filters',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                database_id: {
+                  type: 'number',
+                  description: 'Database ID to create dashboard in'
+                },
+                name: {
+                  type: 'string',
+                  description: 'Dashboard name'
+                },
+                description: {
+                  type: 'string',
+                  description: 'Dashboard description'
+                },
+                questions: {
+                  type: 'array',
+                  description: 'Array of question configurations',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      name: { type: 'string' },
+                      sql_template: { type: 'string' },
+                      parameters: { type: 'object' },
+                      question_type: { type: 'string' }
+                    }
+                  }
+                },
+                filters: {
+                  type: 'object',
+                  description: 'Dashboard-level filters',
+                  additionalProperties: {
+                    type: 'object',
+                    properties: {
+                      type: { type: 'string' },
+                      display_name: { type: 'string' },
+                      default: { type: 'string' },
+                      required: { type: 'boolean' }
+                    }
+                  }
+                },
+                layout: {
+                  type: 'array',
+                  description: 'Layout configuration for questions'
+                },
+                collection_id: {
+                  type: 'number',
+                  description: 'Collection ID to save dashboard to'
+                }
+              },
+              required: ['database_id', 'name', 'questions']
+            }
+          },
+          {
+            name: 'parametric_template_preset',
+            description: 'Create parametric question from preset templates (date range analysis, category filter, text search, period comparison)',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                database_id: {
+                  type: 'number',
+                  description: 'Database ID to create question in'
+                },
+                preset_type: {
+                  type: 'string',
+                  enum: ['date_range_analysis', 'category_filter', 'text_search', 'period_comparison'],
+                  description: 'Preset template type'
+                },
+                config: {
+                  type: 'object',
+                  description: 'Configuration for the preset template',
+                  properties: {
+                    name: { type: 'string' },
+                    table: { type: 'string' },
+                    date_column: { type: 'string' },
+                    category_column: { type: 'string' },
+                    search_columns: { type: 'array', items: { type: 'string' } },
+                    metrics: { type: 'array', items: { type: 'string' } },
+                    date_field_id: { type: 'number' },
+                    category_field_id: { type: 'number' }
+                  }
+                },
+                collection_id: {
+                  type: 'number',
+                  description: 'Collection ID to save question to'
+                }
+              },
+              required: ['database_id', 'preset_type', 'config']
+            }
+          },
+
+          // === DATABASE MAINTENANCE & QUERY ANALYSIS ===
+          {
+            name: 'db_vacuum_analyze',
+            description: 'Run VACUUM and ANALYZE on PostgreSQL tables to optimize storage and update statistics (PostgreSQL only)',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                database_id: {
+                  type: 'number',
+                  description: 'Database ID'
+                },
+                table_name: {
+                  type: 'string',
+                  description: 'Table name to vacuum/analyze (optional, all tables if not specified)'
+                },
+                schema_name: {
+                  type: 'string',
+                  description: 'Schema name (default: public)',
+                  default: 'public'
+                },
+                vacuum_type: {
+                  type: 'string',
+                  enum: ['vacuum', 'vacuum_analyze', 'vacuum_full', 'analyze_only'],
+                  description: 'Type of maintenance operation',
+                  default: 'vacuum_analyze'
+                },
+                dry_run: {
+                  type: 'boolean',
+                  description: 'Preview command without executing',
+                  default: true
+                }
+              },
+              required: ['database_id']
+            }
+          },
+          {
+            name: 'db_query_explain',
+            description: 'Get execution plan for a SQL query - shows how PostgreSQL will execute the query',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                database_id: {
+                  type: 'number',
+                  description: 'Database ID'
+                },
+                sql: {
+                  type: 'string',
+                  description: 'SQL query to analyze'
+                },
+                analyze: {
+                  type: 'boolean',
+                  description: 'Actually run the query to get real execution times',
+                  default: false
+                },
+                format: {
+                  type: 'string',
+                  enum: ['text', 'json', 'yaml'],
+                  description: 'Output format for the plan',
+                  default: 'text'
+                },
+                verbose: {
+                  type: 'boolean',
+                  description: 'Include additional details in the plan',
+                  default: false
+                }
+              },
+              required: ['database_id', 'sql']
+            }
+          },
+          {
+            name: 'db_table_stats',
+            description: 'Get table statistics including row count, size, dead tuples, last vacuum/analyze times',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                database_id: {
+                  type: 'number',
+                  description: 'Database ID'
+                },
+                table_name: {
+                  type: 'string',
+                  description: 'Table name to get stats for'
+                },
+                schema_name: {
+                  type: 'string',
+                  description: 'Schema name (default: public)',
+                  default: 'public'
+                }
+              },
+              required: ['database_id', 'table_name']
+            }
+          },
+          {
+            name: 'db_index_usage',
+            description: 'Analyze index usage statistics - find unused or rarely used indexes',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                database_id: {
+                  type: 'number',
+                  description: 'Database ID'
+                },
+                schema_name: {
+                  type: 'string',
+                  description: 'Schema name to analyze (default: public)',
+                  default: 'public'
+                },
+                min_size_mb: {
+                  type: 'number',
+                  description: 'Minimum index size in MB to include',
+                  default: 0
+                }
+              },
+              required: ['database_id']
+            }
+          },
+
+          // === VISUALIZATION SETTINGS ===
+          {
+            name: 'mb_visualization_settings',
+            description: 'Get or update visualization settings for a question (chart type, colors, labels, etc.)',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                question_id: {
+                  type: 'number',
+                  description: 'Question ID to get/update visualization for'
+                },
+                display: {
+                  type: 'string',
+                  enum: ['table', 'bar', 'line', 'area', 'pie', 'scalar', 'row', 'funnel', 'scatter', 'map', 'gauge', 'progress', 'waterfall', 'combo'],
+                  description: 'Chart display type'
+                },
+                settings: {
+                  type: 'object',
+                  description: 'Visualization settings object',
+                  properties: {
+                    'graph.dimensions': { type: 'array', description: 'Dimension fields' },
+                    'graph.metrics': { type: 'array', description: 'Metric fields' },
+                    'graph.colors': { type: 'array', description: 'Custom colors' },
+                    'graph.x_axis.title_text': { type: 'string' },
+                    'graph.y_axis.title_text': { type: 'string' },
+                    'graph.show_values': { type: 'boolean' },
+                    'graph.label_value_frequency': { type: 'string' },
+                    'pie.show_legend': { type: 'boolean' },
+                    'pie.show_total': { type: 'boolean' },
+                    'table.pivot': { type: 'boolean' },
+                    'table.cell_column': { type: 'string' }
+                  }
+                }
+              },
+              required: ['question_id']
+            }
+          },
+          {
+            name: 'mb_visualization_recommend',
+            description: 'AI-powered visualization recommendation based on query results and data types',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                question_id: {
+                  type: 'number',
+                  description: 'Question ID to analyze'
+                },
+                data_sample: {
+                  type: 'object',
+                  description: 'Sample data to analyze (optional if question_id provided)'
+                },
+                purpose: {
+                  type: 'string',
+                  enum: ['comparison', 'trend', 'distribution', 'composition', 'relationship', 'kpi'],
+                  description: 'Purpose of the visualization'
+                }
+              },
+              required: ['question_id']
+            }
+          },
+
+          // === COLLECTION MANAGEMENT ===
+          {
+            name: 'mb_collection_create',
+            description: 'Create a new collection in Metabase for organizing questions and dashboards',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                name: {
+                  type: 'string',
+                  description: 'Collection name'
+                },
+                description: {
+                  type: 'string',
+                  description: 'Collection description'
+                },
+                parent_id: {
+                  type: 'number',
+                  description: 'Parent collection ID (null for root level)'
+                },
+                color: {
+                  type: 'string',
+                  description: 'Collection color (hex code)',
+                  default: '#509EE3'
+                }
+              },
+              required: ['name']
+            }
+          },
+          {
+            name: 'mb_collection_list',
+            description: 'List all collections with hierarchy and item counts',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                parent_id: {
+                  type: 'number',
+                  description: 'Filter by parent collection ID (null for root)'
+                },
+                include_items: {
+                  type: 'boolean',
+                  description: 'Include items in each collection',
+                  default: false
+                }
+              }
+            }
+          },
+          {
+            name: 'mb_collection_move',
+            description: 'Move questions, dashboards, or collections to a different collection',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                item_type: {
+                  type: 'string',
+                  enum: ['card', 'dashboard', 'collection'],
+                  description: 'Type of item to move'
+                },
+                item_id: {
+                  type: 'number',
+                  description: 'ID of the item to move'
+                },
+                target_collection_id: {
+                  type: 'number',
+                  description: 'Target collection ID (null for root)'
+                }
+              },
+              required: ['item_type', 'item_id', 'target_collection_id']
+            }
+          },
+
+          // === METABASE ACTIONS API ===
+          {
+            name: 'mb_action_create',
+            description: 'Create a Metabase Action for data modification (INSERT, UPDATE, DELETE)',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                name: {
+                  type: 'string',
+                  description: 'Action name'
+                },
+                description: {
+                  type: 'string',
+                  description: 'Action description'
+                },
+                model_id: {
+                  type: 'number',
+                  description: 'Model ID the action belongs to'
+                },
+                type: {
+                  type: 'string',
+                  enum: ['query', 'implicit'],
+                  description: 'Action type',
+                  default: 'query'
+                },
+                database_id: {
+                  type: 'number',
+                  description: 'Database ID for query actions'
+                },
+                dataset_query: {
+                  type: 'object',
+                  description: 'Query definition for query actions',
+                  properties: {
+                    native: {
+                      type: 'object',
+                      properties: {
+                        query: { type: 'string', description: 'SQL query with {{parameter}} placeholders' },
+                        template_tags: { type: 'object', description: 'Parameter definitions' }
+                      }
+                    }
+                  }
+                },
+                parameters: {
+                  type: 'array',
+                  description: 'Action parameters',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      id: { type: 'string' },
+                      name: { type: 'string' },
+                      type: { type: 'string', enum: ['string', 'number', 'date'] },
+                      required: { type: 'boolean' }
+                    }
+                  }
+                },
+                visualization_settings: {
+                  type: 'object',
+                  description: 'Form visualization settings'
+                }
+              },
+              required: ['name', 'model_id', 'type']
+            }
+          },
+          {
+            name: 'mb_action_list',
+            description: 'List all actions for a model',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                model_id: {
+                  type: 'number',
+                  description: 'Model ID to get actions for'
+                }
+              },
+              required: ['model_id']
+            }
+          },
+          {
+            name: 'mb_action_execute',
+            description: 'Execute a Metabase action with parameters',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                action_id: {
+                  type: 'number',
+                  description: 'Action ID to execute'
+                },
+                parameters: {
+                  type: 'object',
+                  description: 'Parameter values for the action'
+                }
+              },
+              required: ['action_id', 'parameters']
+            }
+          },
+
+          // === ALERTS & NOTIFICATIONS ===
+          {
+            name: 'mb_alert_create',
+            description: 'Create an alert for a question that triggers on specified conditions',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                card_id: {
+                  type: 'number',
+                  description: 'Question/Card ID to create alert for'
+                },
+                alert_condition: {
+                  type: 'string',
+                  enum: ['rows', 'goal'],
+                  description: 'Alert condition type',
+                  default: 'rows'
+                },
+                alert_first_only: {
+                  type: 'boolean',
+                  description: 'Only alert on first occurrence',
+                  default: false
+                },
+                alert_above_goal: {
+                  type: 'boolean',
+                  description: 'Alert when above goal (for goal condition)',
+                  default: true
+                },
+                channels: {
+                  type: 'array',
+                  description: 'Notification channels',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      channel_type: { type: 'string', enum: ['email', 'slack'] },
+                      enabled: { type: 'boolean' },
+                      recipients: { type: 'array', items: { type: 'object' } },
+                      details: { type: 'object' },
+                      schedule_type: { type: 'string', enum: ['hourly', 'daily', 'weekly'] },
+                      schedule_hour: { type: 'number' },
+                      schedule_day: { type: 'string' }
                     }
                   }
                 }
               },
-              parameters: {
-                type: 'array',
-                description: 'Action parameters',
-                items: {
-                  type: 'object',
-                  properties: {
-                    id: { type: 'string' },
-                    name: { type: 'string' },
-                    type: { type: 'string', enum: ['string', 'number', 'date'] },
-                    required: { type: 'boolean' }
-                  }
+              required: ['card_id']
+            }
+          },
+          {
+            name: 'mb_alert_list',
+            description: 'List all alerts, optionally filtered by question',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                card_id: {
+                  type: 'number',
+                  description: 'Filter alerts by question ID (optional)'
                 }
-              },
-              visualization_settings: {
-                type: 'object',
-                description: 'Form visualization settings'
-              }
-            },
-            required: ['name', 'model_id', 'type']
-          }
-        },
-        {
-          name: 'mb_action_list',
-          description: 'List all actions for a model',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              model_id: {
-                type: 'number',
-                description: 'Model ID to get actions for'
-              }
-            },
-            required: ['model_id']
-          }
-        },
-        {
-          name: 'mb_action_execute',
-          description: 'Execute a Metabase action with parameters',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              action_id: {
-                type: 'number',
-                description: 'Action ID to execute'
-              },
-              parameters: {
-                type: 'object',
-                description: 'Parameter values for the action'
-              }
-            },
-            required: ['action_id', 'parameters']
-          }
-        },
-
-        // === ALERTS & NOTIFICATIONS ===
-        {
-          name: 'mb_alert_create',
-          description: 'Create an alert for a question that triggers on specified conditions',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              card_id: {
-                type: 'number',
-                description: 'Question/Card ID to create alert for'
-              },
-              alert_condition: {
-                type: 'string',
-                enum: ['rows', 'goal'],
-                description: 'Alert condition type',
-                default: 'rows'
-              },
-              alert_first_only: {
-                type: 'boolean',
-                description: 'Only alert on first occurrence',
-                default: false
-              },
-              alert_above_goal: {
-                type: 'boolean',
-                description: 'Alert when above goal (for goal condition)',
-                default: true
-              },
-              channels: {
-                type: 'array',
-                description: 'Notification channels',
-                items: {
-                  type: 'object',
-                  properties: {
-                    channel_type: { type: 'string', enum: ['email', 'slack'] },
-                    enabled: { type: 'boolean' },
-                    recipients: { type: 'array', items: { type: 'object' } },
-                    details: { type: 'object' },
-                    schedule_type: { type: 'string', enum: ['hourly', 'daily', 'weekly'] },
-                    schedule_hour: { type: 'number' },
-                    schedule_day: { type: 'string' }
-                  }
-                }
-              }
-            },
-            required: ['card_id']
-          }
-        },
-        {
-          name: 'mb_alert_list',
-          description: 'List all alerts, optionally filtered by question',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              card_id: {
-                type: 'number',
-                description: 'Filter alerts by question ID (optional)'
               }
             }
-          }
-        },
-        {
-          name: 'mb_pulse_create',
-          description: 'Create a scheduled report (pulse) that sends dashboards/questions on a schedule',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              name: {
-                type: 'string',
-                description: 'Pulse name'
-              },
-              cards: {
-                type: 'array',
-                description: 'Cards to include in the pulse',
-                items: {
-                  type: 'object',
-                  properties: {
-                    id: { type: 'number' },
-                    include_csv: { type: 'boolean' },
-                    include_xls: { type: 'boolean' }
-                  }
-                }
-              },
-              channels: {
-                type: 'array',
-                description: 'Delivery channels (email/slack)',
-                items: {
-                  type: 'object',
-                  properties: {
-                    channel_type: { type: 'string' },
-                    schedule_type: { type: 'string' },
-                    schedule_hour: { type: 'number' },
-                    schedule_day: { type: 'string' },
-                    recipients: { type: 'array' }
-                  }
-                }
-              },
-              skip_if_empty: {
-                type: 'boolean',
-                description: 'Skip sending if no results',
-                default: true
-              },
-              collection_id: {
-                type: 'number',
-                description: 'Collection to save pulse in'
-              }
-            },
-            required: ['name', 'cards', 'channels']
-          }
-        },
-
-        // === FIELD METADATA & SEMANTIC TYPES ===
-        {
-          name: 'mb_field_metadata',
-          description: 'Get or update field metadata including display name, description, and semantic type',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              field_id: {
-                type: 'number',
-                description: 'Field ID to get/update'
-              },
-              display_name: {
-                type: 'string',
-                description: 'Human-readable display name'
-              },
-              description: {
-                type: 'string',
-                description: 'Field description'
-              },
-              semantic_type: {
-                type: 'string',
-                enum: [
-                  'type/PK', 'type/FK', 'type/Name', 'type/Title', 'type/Description',
-                  'type/City', 'type/State', 'type/Country', 'type/ZipCode', 'type/Latitude', 'type/Longitude',
-                  'type/Email', 'type/URL', 'type/ImageURL', 'type/AvatarURL',
-                  'type/Number', 'type/Currency', 'type/Cost', 'type/Price', 'type/Discount', 'type/Income', 'type/Quantity',
-                  'type/Score', 'type/Percentage', 'type/Duration',
-                  'type/CreationDate', 'type/CreationTimestamp', 'type/JoinDate', 'type/Birthdate',
-                  'type/Category', 'type/Comment', 'type/SerializedJSON',
-                  'type/Product', 'type/User', 'type/Company'
-                ],
-                description: 'Semantic type for the field'
-              },
-              visibility_type: {
-                type: 'string',
-                enum: ['normal', 'details-only', 'sensitive', 'hidden', 'retired'],
-                description: 'Field visibility'
-              },
-              has_field_values: {
-                type: 'string',
-                enum: ['none', 'list', 'search'],
-                description: 'How to show field values in filters'
-              }
-            },
-            required: ['field_id']
-          }
-        },
-        {
-          name: 'mb_table_metadata',
-          description: 'Get or update table metadata including display name, description, and visibility',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              table_id: {
-                type: 'number',
-                description: 'Table ID to get/update'
-              },
-              display_name: {
-                type: 'string',
-                description: 'Human-readable display name'
-              },
-              description: {
-                type: 'string',
-                description: 'Table description'
-              },
-              visibility_type: {
-                type: 'string',
-                enum: ['visible', 'hidden', 'technical', 'cruft'],
-                description: 'Table visibility type'
-              }
-            },
-            required: ['table_id']
-          }
-        },
-        {
-          name: 'mb_field_values',
-          description: 'Get distinct values for a field (for filter dropdowns)',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              field_id: {
-                type: 'number',
-                description: 'Field ID to get values for'
-              }
-            },
-            required: ['field_id']
-          }
-        },
-
-        // === EMBEDDING ===
-        {
-          name: 'mb_embed_url_generate',
-          description: 'Generate signed embedding URL for a dashboard or question',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              resource_type: {
-                type: 'string',
-                enum: ['dashboard', 'question'],
-                description: 'Type of resource to embed'
-              },
-              resource_id: {
-                type: 'number',
-                description: 'ID of the dashboard or question'
-              },
-              params: {
-                type: 'object',
-                description: 'Locked parameter values for the embedding'
-              },
-              exp_minutes: {
-                type: 'number',
-                description: 'Token expiration in minutes',
-                default: 10
-              },
-              preview: {
-                type: 'boolean',
-                description: 'Include preview-mode frame styles',
-                default: false
-              },
-              theme: {
-                type: 'string',
-                enum: ['light', 'night', 'transparent'],
-                description: 'Embed theme',
-                default: 'light'
-              },
-              bordered: {
-                type: 'boolean',
-                description: 'Show border around embed',
-                default: true
-              },
-              titled: {
-                type: 'boolean',
-                description: 'Show title in embed',
-                default: true
-              }
-            },
-            required: ['resource_type', 'resource_id']
-          }
-        },
-        {
-          name: 'mb_embed_settings',
-          description: 'Get embedding settings and enabled features for the Metabase instance',
-          inputSchema: {
-            type: 'object',
-            properties: {}
-          }
-        },
-        // ==================== USER MANAGEMENT ====================
-        {
-          name: 'mb_user_list',
-          description: 'List all Metabase users with filtering options',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              status: {
-                type: 'string',
-                enum: ['active', 'inactive', 'all'],
-                default: 'all',
-                description: 'Filter by user status'
-              },
-              group_id: {
-                type: 'number',
-                description: 'Filter by permission group ID (optional)'
-              }
-            }
-          }
-        },
-        {
-          name: 'mb_user_get',
-          description: 'Get detailed information about a specific user',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              user_id: {
-                type: 'number',
-                description: 'User ID to retrieve'
-              }
-            },
-            required: ['user_id']
-          }
-        },
-        {
-          name: 'mb_user_create',
-          description: 'Create a new Metabase user',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              email: {
-                type: 'string',
-                description: 'User email address (also used as login)'
-              },
-              first_name: {
-                type: 'string',
-                description: 'User first name'
-              },
-              last_name: {
-                type: 'string',
-                description: 'User last name'
-              },
-              password: {
-                type: 'string',
-                description: 'Initial password (optional, will send invite email if not provided)'
-              },
-              group_ids: {
-                type: 'array',
-                items: { type: 'number' },
-                description: 'Array of permission group IDs to assign'
-              }
-            },
-            required: ['email', 'first_name', 'last_name']
-          }
-        },
-        {
-          name: 'mb_user_update',
-          description: 'Update an existing user',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              user_id: {
-                type: 'number',
-                description: 'User ID to update'
-              },
-              email: { type: 'string', description: 'New email address' },
-              first_name: { type: 'string', description: 'New first name' },
-              last_name: { type: 'string', description: 'New last name' },
-              is_superuser: { type: 'boolean', description: 'Set superuser status' },
-              group_ids: {
-                type: 'array',
-                items: { type: 'number' },
-                description: 'New permission group IDs'
-              }
-            },
-            required: ['user_id']
-          }
-        },
-        {
-          name: 'mb_user_disable',
-          description: 'Disable (deactivate) a user account',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              user_id: {
-                type: 'number',
-                description: 'User ID to disable'
-              }
-            },
-            required: ['user_id']
-          }
-        },
-        // ==================== PERMISSION GROUPS ====================
-        {
-          name: 'mb_permission_group_list',
-          description: 'List all permission groups in Metabase',
-          inputSchema: {
-            type: 'object',
-            properties: {}
-          }
-        },
-        {
-          name: 'mb_permission_group_create',
-          description: 'Create a new permission group',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              name: {
-                type: 'string',
-                description: 'Name of the permission group'
-              }
-            },
-            required: ['name']
-          }
-        },
-        {
-          name: 'mb_permission_group_delete',
-          description: 'Delete a permission group',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              group_id: {
-                type: 'number',
-                description: 'Group ID to delete'
-              }
-            },
-            required: ['group_id']
-          }
-        },
-        {
-          name: 'mb_permission_group_add_user',
-          description: 'Add a user to a permission group',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              group_id: {
-                type: 'number',
-                description: 'Permission group ID'
-              },
-              user_id: {
-                type: 'number',
-                description: 'User ID to add'
-              }
-            },
-            required: ['group_id', 'user_id']
-          }
-        },
-        {
-          name: 'mb_permission_group_remove_user',
-          description: 'Remove a user from a permission group',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              group_id: {
-                type: 'number',
-                description: 'Permission group ID'
-              },
-              user_id: {
-                type: 'number',
-                description: 'User ID to remove'
-              }
-            },
-            required: ['group_id', 'user_id']
-          }
-        },
-        // ==================== COLLECTION PERMISSIONS ====================
-        {
-          name: 'mb_collection_permissions_get',
-          description: 'Get permissions graph for a collection',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              collection_id: {
-                type: 'number',
-                description: 'Collection ID (use "root" for root collection)'
-              }
-            },
-            required: ['collection_id']
-          }
-        },
-        {
-          name: 'mb_collection_permissions_update',
-          description: 'Update permissions for a collection',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              collection_id: {
-                type: 'number',
-                description: 'Collection ID'
-              },
-              group_id: {
-                type: 'number',
-                description: 'Permission group ID'
-              },
-              permission: {
-                type: 'string',
-                enum: ['none', 'read', 'write'],
-                description: 'Permission level to set'
-              }
-            },
-            required: ['collection_id', 'group_id', 'permission']
-          }
-        },
-        // ==================== CARD/QUESTION CRUD ====================
-        {
-          name: 'mb_card_get',
-          description: 'Get detailed information about a specific card/question',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              card_id: {
-                type: 'number',
-                description: 'Card/Question ID'
-              }
-            },
-            required: ['card_id']
-          }
-        },
-        {
-          name: 'mb_card_update',
-          description: 'Update an existing card/question',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              card_id: {
-                type: 'number',
-                description: 'Card/Question ID'
-              },
-              name: { type: 'string', description: 'New name' },
-              description: { type: 'string', description: 'New description' },
-              visualization_settings: {
-                type: 'object',
-                description: 'New visualization settings'
-              },
-              display: {
-                type: 'string',
-                enum: ['table', 'bar', 'line', 'area', 'pie', 'scatter', 'funnel', 'map', 'row', 'waterfall', 'combo', 'gauge', 'progress', 'scalar', 'smartscalar', 'pivot'],
-                description: 'Chart type'
-              },
-              collection_id: {
-                type: 'number',
-                description: 'Move to collection ID'
-              }
-            },
-            required: ['card_id']
-          }
-        },
-        {
-          name: 'mb_card_delete',
-          description: 'Permanently delete a card/question',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              card_id: {
-                type: 'number',
-                description: 'Card/Question ID to delete'
-              }
-            },
-            required: ['card_id']
-          }
-        },
-        {
-          name: 'mb_card_archive',
-          description: 'Archive a card/question (soft delete)',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              card_id: {
-                type: 'number',
-                description: 'Card/Question ID to archive'
-              }
-            },
-            required: ['card_id']
-          }
-        },
-        {
-          name: 'mb_card_data',
-          description: 'Execute a card/question and get the results in specified format',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              card_id: {
-                type: 'number',
-                description: 'Card/Question ID'
-              },
-              format: {
-                type: 'string',
-                enum: ['json', 'csv', 'xlsx'],
-                default: 'json',
-                description: 'Output format'
-              },
-              parameters: {
-                type: 'object',
-                description: 'Optional parameters for parametric questions'
-              }
-            },
-            required: ['card_id']
-          }
-        },
-        // ==================== DASHBOARD CRUD ====================
-        {
-          name: 'mb_dashboard_get',
-          description: 'Get detailed information about a dashboard',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              dashboard_id: {
-                type: 'number',
-                description: 'Dashboard ID'
-              }
-            },
-            required: ['dashboard_id']
-          }
-        },
-        {
-          name: 'mb_dashboard_update',
-          description: 'Update dashboard properties',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              dashboard_id: {
-                type: 'number',
-                description: 'Dashboard ID'
-              },
-              name: { type: 'string', description: 'New name' },
-              description: { type: 'string', description: 'New description' },
-              collection_id: { type: 'number', description: 'Move to collection' },
-              enable_embedding: { type: 'boolean', description: 'Enable embedding' }
-            },
-            required: ['dashboard_id']
-          }
-        },
-        {
-          name: 'mb_dashboard_delete',
-          description: 'Delete a dashboard',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              dashboard_id: {
-                type: 'number',
-                description: 'Dashboard ID to delete'
-              }
-            },
-            required: ['dashboard_id']
-          }
-        },
-        {
-          name: 'mb_dashboard_card_update',
-          description: 'Update card position and size on a dashboard',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              dashboard_id: {
-                type: 'number',
-                description: 'Dashboard ID'
-              },
-              card_id: {
-                type: 'number',
-                description: 'Dashboard card ID'
-              },
-              row: { type: 'number', description: 'New row position' },
-              col: { type: 'number', description: 'New column position' },
-              size_x: { type: 'number', description: 'Width in grid units' },
-              size_y: { type: 'number', description: 'Height in grid units' }
-            },
-            required: ['dashboard_id', 'card_id']
-          }
-        },
-        {
-          name: 'mb_dashboard_card_remove',
-          description: 'Remove a card from a dashboard',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              dashboard_id: {
-                type: 'number',
-                description: 'Dashboard ID'
-              },
-              card_id: {
-                type: 'number',
-                description: 'Dashboard card ID to remove'
-              }
-            },
-            required: ['dashboard_id', 'card_id']
-          }
-        },
-        // ==================== COPY/CLONE OPERATIONS ====================
-        {
-          name: 'mb_card_copy',
-          description: 'Copy a card/question to a new location',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              card_id: {
-                type: 'number',
-                description: 'Source card ID'
-              },
-              collection_id: {
-                type: 'number',
-                description: 'Destination collection ID'
-              },
-              new_name: {
-                type: 'string',
-                description: 'Name for the copy (optional, defaults to "Copy of [original]")'
-              }
-            },
-            required: ['card_id']
-          }
-        },
-        {
-          name: 'mb_card_clone',
-          description: 'Clone a card and retarget to a different table (for template cards)',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              card_id: {
-                type: 'number',
-                description: 'Source card ID'
-              },
-              target_table_id: {
-                type: 'number',
-                description: 'New target table ID'
-              },
-              collection_id: {
-                type: 'number',
-                description: 'Destination collection ID'
-              },
-              column_mappings: {
-                type: 'object',
-                description: 'Column name mappings from source to target table'
-              }
-            },
-            required: ['card_id', 'target_table_id']
-          }
-        },
-        {
-          name: 'mb_dashboard_copy',
-          description: 'Copy a dashboard with all its cards',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              dashboard_id: {
-                type: 'number',
-                description: 'Source dashboard ID'
-              },
-              collection_id: {
-                type: 'number',
-                description: 'Destination collection ID'
-              },
-              new_name: {
-                type: 'string',
-                description: 'Name for the copy'
-              },
-              deep_copy: {
-                type: 'boolean',
-                default: true,
-                description: 'If true, also copies all cards. If false, links to existing cards.'
-              }
-            },
-            required: ['dashboard_id']
-          }
-        },
-        {
-          name: 'mb_collection_copy',
-          description: 'Copy an entire collection with all contents',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              collection_id: {
-                type: 'number',
-                description: 'Source collection ID'
-              },
-              destination_id: {
-                type: 'number',
-                description: 'Destination parent collection ID'
-              },
-              new_name: {
-                type: 'string',
-                description: 'Name for the copy'
-              }
-            },
-            required: ['collection_id']
-          }
-        },
-        // ==================== SEARCH ====================
-        {
-          name: 'mb_search',
-          description: 'Search across all Metabase items (cards, dashboards, collections, tables)',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              query: {
-                type: 'string',
-                description: 'Search query text'
-              },
-              models: {
-                type: 'array',
-                items: {
+          },
+          {
+            name: 'mb_pulse_create',
+            description: 'Create a scheduled report (pulse) that sends dashboards/questions on a schedule',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                name: {
                   type: 'string',
-                  enum: ['card', 'dashboard', 'collection', 'table', 'database', 'pulse']
+                  description: 'Pulse name'
                 },
-                description: 'Filter by item types (default: all)'
+                cards: {
+                  type: 'array',
+                  description: 'Cards to include in the pulse',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      id: { type: 'number' },
+                      include_csv: { type: 'boolean' },
+                      include_xls: { type: 'boolean' }
+                    }
+                  }
+                },
+                channels: {
+                  type: 'array',
+                  description: 'Delivery channels (email/slack)',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      channel_type: { type: 'string' },
+                      schedule_type: { type: 'string' },
+                      schedule_hour: { type: 'number' },
+                      schedule_day: { type: 'string' },
+                      recipients: { type: 'array' }
+                    }
+                  }
+                },
+                skip_if_empty: {
+                  type: 'boolean',
+                  description: 'Skip sending if no results',
+                  default: true
+                },
+                collection_id: {
+                  type: 'number',
+                  description: 'Collection to save pulse in'
+                }
               },
-              collection_id: {
-                type: 'number',
-                description: 'Search within specific collection'
-              },
-              limit: {
-                type: 'number',
-                default: 50,
-                description: 'Maximum results to return'
-              }
-            },
-            required: ['query']
-          }
-        },
-        // ==================== SEGMENTS ====================
-        {
-          name: 'mb_segment_create',
-          description: 'Create a segment (reusable filter) for a table',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              name: {
-                type: 'string',
-                description: 'Segment name'
-              },
-              description: {
-                type: 'string',
-                description: 'Segment description'
-              },
-              table_id: {
-                type: 'number',
-                description: 'Table ID to create segment for'
-              },
-              definition: {
-                type: 'object',
-                description: 'MBQL filter definition'
-              }
-            },
-            required: ['name', 'table_id', 'definition']
-          }
-        },
-        {
-          name: 'mb_segment_list',
-          description: 'List all segments',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              table_id: {
-                type: 'number',
-                description: 'Filter by table ID (optional)'
-              }
+              required: ['name', 'cards', 'channels']
             }
-          }
-        },
-        // ==================== BOOKMARKS ====================
-        {
-          name: 'mb_bookmark_create',
-          description: 'Bookmark an item for quick access',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              type: {
-                type: 'string',
-                enum: ['card', 'dashboard', 'collection'],
-                description: 'Item type to bookmark'
-              },
-              id: {
-                type: 'number',
-                description: 'Item ID to bookmark'
-              }
-            },
-            required: ['type', 'id']
-          }
-        },
-        {
-          name: 'mb_bookmark_list',
-          description: 'List all bookmarked items',
-          inputSchema: {
-            type: 'object',
-            properties: {}
-          }
-        },
-        {
-          name: 'mb_bookmark_delete',
-          description: 'Remove a bookmark',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              type: {
-                type: 'string',
-                enum: ['card', 'dashboard', 'collection'],
-                description: 'Item type'
-              },
-              id: {
-                type: 'number',
-                description: 'Item ID'
-              }
-            },
-            required: ['type', 'id']
-          }
-        },
-        // ==================== DATABASE SYNC & CACHE ====================
-        {
-          name: 'db_sync_schema',
-          description: 'Trigger schema sync for a database',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              database_id: {
-                type: 'number',
-                description: 'Database ID to sync'
-              }
-            },
-            required: ['database_id']
-          }
-        },
-        {
-          name: 'mb_cache_invalidate',
-          description: 'Invalidate cache for specific items or entire database',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              database_id: {
-                type: 'number',
-                description: 'Database ID (optional, invalidates all if provided alone)'
-              },
-              card_id: {
-                type: 'number',
-                description: 'Specific card ID to invalidate'
-              }
-            }
-          }
-        },
+          },
 
-        // === METADATA & ANALYTICS ===
-        {
-          name: 'mb_meta_query_performance',
-          description: 'Get comprehensive query performance statistics from Metabase metadata - analyze execution times, cache hit rates, error rates, and identify slow queries. Requires MB_METADATA_ENABLED=true.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              days: {
-                type: 'number',
-                description: 'Number of days to analyze (default: 7)',
-                default: 7
+          // === FIELD METADATA & SEMANTIC TYPES ===
+          {
+            name: 'mb_field_metadata',
+            description: 'Get or update field metadata including display name, description, and semantic type',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                field_id: {
+                  type: 'number',
+                  description: 'Field ID to get/update'
+                },
+                display_name: {
+                  type: 'string',
+                  description: 'Human-readable display name'
+                },
+                description: {
+                  type: 'string',
+                  description: 'Field description'
+                },
+                semantic_type: {
+                  type: 'string',
+                  enum: [
+                    'type/PK', 'type/FK', 'type/Name', 'type/Title', 'type/Description',
+                    'type/City', 'type/State', 'type/Country', 'type/ZipCode', 'type/Latitude', 'type/Longitude',
+                    'type/Email', 'type/URL', 'type/ImageURL', 'type/AvatarURL',
+                    'type/Number', 'type/Currency', 'type/Cost', 'type/Price', 'type/Discount', 'type/Income', 'type/Quantity',
+                    'type/Score', 'type/Percentage', 'type/Duration',
+                    'type/CreationDate', 'type/CreationTimestamp', 'type/JoinDate', 'type/Birthdate',
+                    'type/Category', 'type/Comment', 'type/SerializedJSON',
+                    'type/Product', 'type/User', 'type/Company'
+                  ],
+                  description: 'Semantic type for the field'
+                },
+                visibility_type: {
+                  type: 'string',
+                  enum: ['normal', 'details-only', 'sensitive', 'hidden', 'retired'],
+                  description: 'Field visibility'
+                },
+                has_field_values: {
+                  type: 'string',
+                  enum: ['none', 'list', 'search'],
+                  description: 'How to show field values in filters'
+                }
               },
-              include_slow_queries: {
-                type: 'boolean',
-                description: 'Include detailed slow query analysis (default: true)',
-                default: true
-              },
-              slow_threshold_ms: {
-                type: 'number',
-                description: 'Threshold for slow queries in milliseconds (default: 10000)',
-                default: 10000
-              }
+              required: ['field_id']
             }
-          }
-        },
-        {
-          name: 'mb_meta_content_usage',
-          description: 'Analyze content usage patterns - find popular questions/dashboards, unused content, orphaned cards. Great for content cleanup and optimization. Requires MB_METADATA_ENABLED=true.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              days: {
-                type: 'number',
-                description: 'Number of days to analyze (default: 30)',
-                default: 30
+          },
+          {
+            name: 'mb_table_metadata',
+            description: 'Get or update table metadata including display name, description, and visibility',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                table_id: {
+                  type: 'number',
+                  description: 'Table ID to get/update'
+                },
+                display_name: {
+                  type: 'string',
+                  description: 'Human-readable display name'
+                },
+                description: {
+                  type: 'string',
+                  description: 'Table description'
+                },
+                visibility_type: {
+                  type: 'string',
+                  enum: ['visible', 'hidden', 'technical', 'cruft'],
+                  description: 'Table visibility type'
+                }
               },
-              unused_threshold_days: {
-                type: 'number',
-                description: 'Days without usage to consider content "unused" (default: 90)',
-                default: 90
-              },
-              limit: {
-                type: 'number',
-                description: 'Number of top items to return (default: 20)',
-                default: 20
-              }
+              required: ['table_id']
             }
-          }
-        },
-        {
-          name: 'mb_meta_user_activity',
-          description: 'Get user activity statistics - active users, inactive users, query patterns, login history. Useful for license optimization and user engagement analysis. Requires MB_METADATA_ENABLED=true.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              days: {
-                type: 'number',
-                description: 'Number of days to analyze (default: 30)',
-                default: 30
+          },
+          {
+            name: 'mb_field_values',
+            description: 'Get distinct values for a field (for filter dropdowns)',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                field_id: {
+                  type: 'number',
+                  description: 'Field ID to get values for'
+                }
               },
-              inactive_threshold_days: {
-                type: 'number',
-                description: 'Days without activity to consider user "inactive" (default: 90)',
-                default: 90
-              },
-              include_login_history: {
-                type: 'boolean',
-                description: 'Include login timeline data (default: true)',
-                default: true
-              }
+              required: ['field_id']
             }
-          }
-        },
-        {
-          name: 'mb_meta_database_usage',
-          description: 'Analyze database usage patterns - query counts, performance, errors by database and table. Requires MB_METADATA_ENABLED=true.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              days: {
-                type: 'number',
-                description: 'Number of days to analyze (default: 30)',
-                default: 30
-              },
-              database_id: {
-                type: 'number',
-                description: 'Optional: analyze specific database tables'
-              }
-            }
-          }
-        },
-        {
-          name: 'mb_meta_dashboard_complexity',
-          description: 'Analyze dashboard complexity - card counts, load times, performance issues. Identify dashboards that need optimization. Requires MB_METADATA_ENABLED=true.',
-          inputSchema: {
-            type: 'object',
-            properties: {}
-          }
-        },
-        {
-          name: 'mb_meta_info',
-          description: 'Get overview of Metabase metadata database - active users, questions, dashboards, recent activity. Quick health check. Requires MB_METADATA_ENABLED=true.',
-          inputSchema: {
-            type: 'object',
-            properties: {}
-          }
-        },
+          },
 
-        // === PHASE 2: ADVANCED ANALYTICS ===
-        {
-          name: 'mb_meta_table_dependencies',
-          description: 'Analyze table dependencies - find all questions and dashboards that depend on a specific table. Essential for impact analysis before schema changes. Requires MB_METADATA_ENABLED=true.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              database_id: {
-                type: 'number',
-                description: 'Database ID containing the table'
+          // === EMBEDDING ===
+          {
+            name: 'mb_embed_url_generate',
+            description: 'Generate signed embedding URL for a dashboard or question',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                resource_type: {
+                  type: 'string',
+                  enum: ['dashboard', 'question'],
+                  description: 'Type of resource to embed'
+                },
+                resource_id: {
+                  type: 'number',
+                  description: 'ID of the dashboard or question'
+                },
+                params: {
+                  type: 'object',
+                  description: 'Locked parameter values for the embedding'
+                },
+                exp_minutes: {
+                  type: 'number',
+                  description: 'Token expiration in minutes',
+                  default: 10
+                },
+                preview: {
+                  type: 'boolean',
+                  description: 'Include preview-mode frame styles',
+                  default: false
+                },
+                theme: {
+                  type: 'string',
+                  enum: ['light', 'night', 'transparent'],
+                  description: 'Embed theme',
+                  default: 'light'
+                },
+                bordered: {
+                  type: 'boolean',
+                  description: 'Show border around embed',
+                  default: true
+                },
+                titled: {
+                  type: 'boolean',
+                  description: 'Show title in embed',
+                  default: true
+                }
               },
-              table_name: {
-                type: 'string',
-                description: 'Name of the table to analyze'
-              },
-              schema_name: {
-                type: 'string',
-                description: 'Schema name (optional, recommended for disambiguation)'
-              }
-            },
-            required: ['database_id', 'table_name']
-          }
-        },
-        {
-          name: 'mb_meta_impact_analysis',
-          description: 'Analyze impact of removing a table - breaking changes, affected questions/dashboards, severity assessment, and recommendations. Critical for safe database migrations. Requires MB_METADATA_ENABLED=true.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              database_id: {
-                type: 'number',
-                description: 'Database ID'
-              },
-              table_name: {
-                type: 'string',
-                description: 'Table name to analyze for removal impact'
-              },
-              schema_name: {
-                type: 'string',
-                description: 'Schema name (optional)'
-              }
-            },
-            required: ['database_id', 'table_name']
-          }
-        },
-        {
-          name: 'mb_meta_optimization_recommendations',
-          description: 'Get comprehensive optimization recommendations - index suggestions, materialized view candidates, and cache optimization. Data-driven performance improvements. Requires MB_METADATA_ENABLED=true.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              database_id: {
-                type: 'number',
-                description: 'Database ID to analyze'
-              },
-              days: {
-                type: 'number',
-                description: 'Number of days to analyze (default: 30)',
-                default: 30
-              },
-              include_matview_candidates: {
-                type: 'boolean',
-                description: 'Include materialized view recommendations (default: true)',
-                default: true
-              },
-              include_cache_recommendations: {
-                type: 'boolean',
-                description: 'Include cache optimization suggestions (default: true)',
-                default: true
-              }
-            },
-            required: ['database_id']
-          }
-        },
-        {
-          name: 'mb_meta_error_patterns',
-          description: 'Analyze error patterns and categorize recurring errors - identify systemic issues, suggest resolutions, find questions with high error rates. Proactive error management. Requires MB_METADATA_ENABLED=true.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              days: {
-                type: 'number',
-                description: 'Number of days to analyze (default: 30)',
-                default: 30
-              },
-              include_recurring_questions: {
-                type: 'boolean',
-                description: 'Include questions with recurring errors (default: true)',
-                default: true
-              },
-              include_timeline: {
-                type: 'boolean',
-                description: 'Include temporal error analysis (default: true)',
-                default: true
+              required: ['resource_type', 'resource_id']
+            }
+          },
+          {
+            name: 'mb_embed_settings',
+            description: 'Get embedding settings and enabled features for the Metabase instance',
+            inputSchema: {
+              type: 'object',
+              properties: {}
+            }
+          },
+          // ==================== USER MANAGEMENT ====================
+          {
+            name: 'mb_user_list',
+            description: 'List all Metabase users with filtering options',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                status: {
+                  type: 'string',
+                  enum: ['active', 'inactive', 'all'],
+                  default: 'all',
+                  description: 'Filter by user status'
+                },
+                group_id: {
+                  type: 'number',
+                  description: 'Filter by permission group ID (optional)'
+                }
               }
             }
-          }
-        },
+          },
+          {
+            name: 'mb_user_get',
+            description: 'Get detailed information about a specific user',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                user_id: {
+                  type: 'number',
+                  description: 'User ID to retrieve'
+                }
+              },
+              required: ['user_id']
+            }
+          },
+          {
+            name: 'mb_user_create',
+            description: 'Create a new Metabase user',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                email: {
+                  type: 'string',
+                  description: 'User email address (also used as login)'
+                },
+                first_name: {
+                  type: 'string',
+                  description: 'User first name'
+                },
+                last_name: {
+                  type: 'string',
+                  description: 'User last name'
+                },
+                password: {
+                  type: 'string',
+                  description: 'Initial password (optional, will send invite email if not provided)'
+                },
+                group_ids: {
+                  type: 'array',
+                  items: { type: 'number' },
+                  description: 'Array of permission group IDs to assign'
+                }
+              },
+              required: ['email', 'first_name', 'last_name']
+            }
+          },
+          {
+            name: 'mb_user_update',
+            description: 'Update an existing user',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                user_id: {
+                  type: 'number',
+                  description: 'User ID to update'
+                },
+                email: { type: 'string', description: 'New email address' },
+                first_name: { type: 'string', description: 'New first name' },
+                last_name: { type: 'string', description: 'New last name' },
+                is_superuser: { type: 'boolean', description: 'Set superuser status' },
+                group_ids: {
+                  type: 'array',
+                  items: { type: 'number' },
+                  description: 'New permission group IDs'
+                }
+              },
+              required: ['user_id']
+            }
+          },
+          {
+            name: 'mb_user_disable',
+            description: 'Disable (deactivate) a user account',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                user_id: {
+                  type: 'number',
+                  description: 'User ID to disable'
+                }
+              },
+              required: ['user_id']
+            }
+          },
+          // ==================== PERMISSION GROUPS ====================
+          {
+            name: 'mb_permission_group_list',
+            description: 'List all permission groups in Metabase',
+            inputSchema: {
+              type: 'object',
+              properties: {}
+            }
+          },
+          {
+            name: 'mb_permission_group_create',
+            description: 'Create a new permission group',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                name: {
+                  type: 'string',
+                  description: 'Name of the permission group'
+                }
+              },
+              required: ['name']
+            }
+          },
+          {
+            name: 'mb_permission_group_delete',
+            description: 'Delete a permission group',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                group_id: {
+                  type: 'number',
+                  description: 'Group ID to delete'
+                }
+              },
+              required: ['group_id']
+            }
+          },
+          {
+            name: 'mb_permission_group_add_user',
+            description: 'Add a user to a permission group',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                group_id: {
+                  type: 'number',
+                  description: 'Permission group ID'
+                },
+                user_id: {
+                  type: 'number',
+                  description: 'User ID to add'
+                }
+              },
+              required: ['group_id', 'user_id']
+            }
+          },
+          {
+            name: 'mb_permission_group_remove_user',
+            description: 'Remove a user from a permission group',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                group_id: {
+                  type: 'number',
+                  description: 'Permission group ID'
+                },
+                user_id: {
+                  type: 'number',
+                  description: 'User ID to remove'
+                }
+              },
+              required: ['group_id', 'user_id']
+            }
+          },
+          // ==================== COLLECTION PERMISSIONS ====================
+          {
+            name: 'mb_collection_permissions_get',
+            description: 'Get permissions graph for a collection',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                collection_id: {
+                  type: 'number',
+                  description: 'Collection ID (use "root" for root collection)'
+                }
+              },
+              required: ['collection_id']
+            }
+          },
+          {
+            name: 'mb_collection_permissions_update',
+            description: 'Update permissions for a collection',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                collection_id: {
+                  type: 'number',
+                  description: 'Collection ID'
+                },
+                group_id: {
+                  type: 'number',
+                  description: 'Permission group ID'
+                },
+                permission: {
+                  type: 'string',
+                  enum: ['none', 'read', 'write'],
+                  description: 'Permission level to set'
+                }
+              },
+              required: ['collection_id', 'group_id', 'permission']
+            }
+          },
+          // ==================== CARD/QUESTION CRUD ====================
+          {
+            name: 'mb_card_get',
+            description: 'Get detailed information about a specific card/question',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                card_id: {
+                  type: 'number',
+                  description: 'Card/Question ID'
+                }
+              },
+              required: ['card_id']
+            }
+          },
+          {
+            name: 'mb_card_update',
+            description: 'Update an existing card/question',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                card_id: {
+                  type: 'number',
+                  description: 'Card/Question ID'
+                },
+                name: { type: 'string', description: 'New name' },
+                description: { type: 'string', description: 'New description' },
+                visualization_settings: {
+                  type: 'object',
+                  description: 'New visualization settings'
+                },
+                display: {
+                  type: 'string',
+                  enum: ['table', 'bar', 'line', 'area', 'pie', 'scatter', 'funnel', 'map', 'row', 'waterfall', 'combo', 'gauge', 'progress', 'scalar', 'smartscalar', 'pivot'],
+                  description: 'Chart type'
+                },
+                collection_id: {
+                  type: 'number',
+                  description: 'Move to collection ID'
+                }
+              },
+              required: ['card_id']
+            }
+          },
+          {
+            name: 'mb_card_delete',
+            description: 'Permanently delete a card/question',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                card_id: {
+                  type: 'number',
+                  description: 'Card/Question ID to delete'
+                }
+              },
+              required: ['card_id']
+            }
+          },
+          {
+            name: 'mb_card_archive',
+            description: 'Archive a card/question (soft delete)',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                card_id: {
+                  type: 'number',
+                  description: 'Card/Question ID to archive'
+                }
+              },
+              required: ['card_id']
+            }
+          },
+          {
+            name: 'mb_card_data',
+            description: 'Execute a card/question and get the results in specified format',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                card_id: {
+                  type: 'number',
+                  description: 'Card/Question ID'
+                },
+                format: {
+                  type: 'string',
+                  enum: ['json', 'csv', 'xlsx'],
+                  default: 'json',
+                  description: 'Output format'
+                },
+                parameters: {
+                  type: 'object',
+                  description: 'Optional parameters for parametric questions'
+                }
+              },
+              required: ['card_id']
+            }
+          },
+          // ==================== DASHBOARD CRUD ====================
+          {
+            name: 'mb_dashboard_get',
+            description: 'Get detailed information about a dashboard',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                dashboard_id: {
+                  type: 'number',
+                  description: 'Dashboard ID'
+                }
+              },
+              required: ['dashboard_id']
+            }
+          },
+          {
+            name: 'mb_dashboard_update',
+            description: 'Update dashboard properties',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                dashboard_id: {
+                  type: 'number',
+                  description: 'Dashboard ID'
+                },
+                name: { type: 'string', description: 'New name' },
+                description: { type: 'string', description: 'New description' },
+                collection_id: { type: 'number', description: 'Move to collection' },
+                enable_embedding: { type: 'boolean', description: 'Enable embedding' }
+              },
+              required: ['dashboard_id']
+            }
+          },
+          {
+            name: 'mb_dashboard_delete',
+            description: 'Delete a dashboard',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                dashboard_id: {
+                  type: 'number',
+                  description: 'Dashboard ID to delete'
+                }
+              },
+              required: ['dashboard_id']
+            }
+          },
+          {
+            name: 'mb_dashboard_card_update',
+            description: 'Update card position and size on a dashboard',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                dashboard_id: {
+                  type: 'number',
+                  description: 'Dashboard ID'
+                },
+                card_id: {
+                  type: 'number',
+                  description: 'Dashboard card ID'
+                },
+                row: { type: 'number', description: 'New row position' },
+                col: { type: 'number', description: 'New column position' },
+                size_x: { type: 'number', description: 'Width in grid units' },
+                size_y: { type: 'number', description: 'Height in grid units' }
+              },
+              required: ['dashboard_id', 'card_id']
+            }
+          },
+          {
+            name: 'mb_dashboard_card_remove',
+            description: 'Remove a card from a dashboard',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                dashboard_id: {
+                  type: 'number',
+                  description: 'Dashboard ID'
+                },
+                card_id: {
+                  type: 'number',
+                  description: 'Dashboard card ID to remove'
+                }
+              },
+              required: ['dashboard_id', 'card_id']
+            }
+          },
+          // ==================== COPY/CLONE OPERATIONS ====================
+          {
+            name: 'mb_card_copy',
+            description: 'Copy a card/question to a new location',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                card_id: {
+                  type: 'number',
+                  description: 'Source card ID'
+                },
+                collection_id: {
+                  type: 'number',
+                  description: 'Destination collection ID'
+                },
+                new_name: {
+                  type: 'string',
+                  description: 'Name for the copy (optional, defaults to "Copy of [original]")'
+                }
+              },
+              required: ['card_id']
+            }
+          },
+          {
+            name: 'mb_card_clone',
+            description: 'Clone a card and retarget to a different table (for template cards)',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                card_id: {
+                  type: 'number',
+                  description: 'Source card ID'
+                },
+                target_table_id: {
+                  type: 'number',
+                  description: 'New target table ID'
+                },
+                collection_id: {
+                  type: 'number',
+                  description: 'Destination collection ID'
+                },
+                column_mappings: {
+                  type: 'object',
+                  description: 'Column name mappings from source to target table'
+                }
+              },
+              required: ['card_id', 'target_table_id']
+            }
+          },
+          {
+            name: 'mb_dashboard_copy',
+            description: 'Copy a dashboard with all its cards',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                dashboard_id: {
+                  type: 'number',
+                  description: 'Source dashboard ID'
+                },
+                collection_id: {
+                  type: 'number',
+                  description: 'Destination collection ID'
+                },
+                new_name: {
+                  type: 'string',
+                  description: 'Name for the copy'
+                },
+                deep_copy: {
+                  type: 'boolean',
+                  default: true,
+                  description: 'If true, also copies all cards. If false, links to existing cards.'
+                }
+              },
+              required: ['dashboard_id']
+            }
+          },
+          {
+            name: 'mb_collection_copy',
+            description: 'Copy an entire collection with all contents',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                collection_id: {
+                  type: 'number',
+                  description: 'Source collection ID'
+                },
+                destination_id: {
+                  type: 'number',
+                  description: 'Destination parent collection ID'
+                },
+                new_name: {
+                  type: 'string',
+                  description: 'Name for the copy'
+                }
+              },
+              required: ['collection_id']
+            }
+          },
+          // ==================== SEARCH ====================
+          {
+            name: 'mb_search',
+            description: 'Search across all Metabase items (cards, dashboards, collections, tables)',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                query: {
+                  type: 'string',
+                  description: 'Search query text'
+                },
+                models: {
+                  type: 'array',
+                  items: {
+                    type: 'string',
+                    enum: ['card', 'dashboard', 'collection', 'table', 'database', 'pulse']
+                  },
+                  description: 'Filter by item types (default: all)'
+                },
+                collection_id: {
+                  type: 'number',
+                  description: 'Search within specific collection'
+                },
+                limit: {
+                  type: 'number',
+                  default: 50,
+                  description: 'Maximum results to return'
+                }
+              },
+              required: ['query']
+            }
+          },
+          // ==================== SEGMENTS ====================
+          {
+            name: 'mb_segment_create',
+            description: 'Create a segment (reusable filter) for a table',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                name: {
+                  type: 'string',
+                  description: 'Segment name'
+                },
+                description: {
+                  type: 'string',
+                  description: 'Segment description'
+                },
+                table_id: {
+                  type: 'number',
+                  description: 'Table ID to create segment for'
+                },
+                definition: {
+                  type: 'object',
+                  description: 'MBQL filter definition'
+                }
+              },
+              required: ['name', 'table_id', 'definition']
+            }
+          },
+          {
+            name: 'mb_segment_list',
+            description: 'List all segments',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                table_id: {
+                  type: 'number',
+                  description: 'Filter by table ID (optional)'
+                }
+              }
+            }
+          },
+          // ==================== BOOKMARKS ====================
+          {
+            name: 'mb_bookmark_create',
+            description: 'Bookmark an item for quick access',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                type: {
+                  type: 'string',
+                  enum: ['card', 'dashboard', 'collection'],
+                  description: 'Item type to bookmark'
+                },
+                id: {
+                  type: 'number',
+                  description: 'Item ID to bookmark'
+                }
+              },
+              required: ['type', 'id']
+            }
+          },
+          {
+            name: 'mb_bookmark_list',
+            description: 'List all bookmarked items',
+            inputSchema: {
+              type: 'object',
+              properties: {}
+            }
+          },
+          {
+            name: 'mb_bookmark_delete',
+            description: 'Remove a bookmark',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                type: {
+                  type: 'string',
+                  enum: ['card', 'dashboard', 'collection'],
+                  description: 'Item type'
+                },
+                id: {
+                  type: 'number',
+                  description: 'Item ID'
+                }
+              },
+              required: ['type', 'id']
+            }
+          },
+          // ==================== DATABASE SYNC & CACHE ====================
+          {
+            name: 'db_sync_schema',
+            description: 'Trigger schema sync for a database',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                database_id: {
+                  type: 'number',
+                  description: 'Database ID to sync'
+                }
+              },
+              required: ['database_id']
+            }
+          },
+          {
+            name: 'mb_cache_invalidate',
+            description: 'Invalidate cache for specific items or entire database',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                database_id: {
+                  type: 'number',
+                  description: 'Database ID (optional, invalidates all if provided alone)'
+                },
+                card_id: {
+                  type: 'number',
+                  description: 'Specific card ID to invalidate'
+                }
+              }
+            }
+          },
 
-        // === PHASE 3: EXPORT/IMPORT & MIGRATION ===
-        {
-          name: 'mb_meta_export_workspace',
-          description: '📤 Export workspace to JSON (questions, dashboards, collections). READ-ONLY operation - safe to execute. Perfect for backups and migrations. Requires MB_METADATA_ENABLED=true.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              include_questions: {
-                type: 'boolean',
-                description: 'Include questions (default: true)',
-                default: true
+          // === METADATA & ANALYTICS ===
+          {
+            name: 'mb_meta_query_performance',
+            description: 'Get comprehensive query performance statistics from Metabase metadata - analyze execution times, cache hit rates, error rates, and identify slow queries. Requires MB_METADATA_ENABLED=true.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                days: {
+                  type: 'number',
+                  description: 'Number of days to analyze (default: 7)',
+                  default: 7
+                },
+                include_slow_queries: {
+                  type: 'boolean',
+                  description: 'Include detailed slow query analysis (default: true)',
+                  default: true
+                },
+                slow_threshold_ms: {
+                  type: 'number',
+                  description: 'Threshold for slow queries in milliseconds (default: 10000)',
+                  default: 10000
+                }
+              }
+            }
+          },
+          {
+            name: 'mb_meta_content_usage',
+            description: 'Analyze content usage patterns - find popular questions/dashboards, unused content, orphaned cards. Great for content cleanup and optimization. Requires MB_METADATA_ENABLED=true.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                days: {
+                  type: 'number',
+                  description: 'Number of days to analyze (default: 30)',
+                  default: 30
+                },
+                unused_threshold_days: {
+                  type: 'number',
+                  description: 'Days without usage to consider content "unused" (default: 90)',
+                  default: 90
+                },
+                limit: {
+                  type: 'number',
+                  description: 'Number of top items to return (default: 20)',
+                  default: 20
+                }
+              }
+            }
+          },
+          {
+            name: 'mb_meta_user_activity',
+            description: 'Get user activity statistics - active users, inactive users, query patterns, login history. Useful for license optimization and user engagement analysis. Requires MB_METADATA_ENABLED=true.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                days: {
+                  type: 'number',
+                  description: 'Number of days to analyze (default: 30)',
+                  default: 30
+                },
+                inactive_threshold_days: {
+                  type: 'number',
+                  description: 'Days without activity to consider user "inactive" (default: 90)',
+                  default: 90
+                },
+                include_login_history: {
+                  type: 'boolean',
+                  description: 'Include login timeline data (default: true)',
+                  default: true
+                }
+              }
+            }
+          },
+          {
+            name: 'mb_meta_database_usage',
+            description: 'Analyze database usage patterns - query counts, performance, errors by database and table. Requires MB_METADATA_ENABLED=true.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                days: {
+                  type: 'number',
+                  description: 'Number of days to analyze (default: 30)',
+                  default: 30
+                },
+                database_id: {
+                  type: 'number',
+                  description: 'Optional: analyze specific database tables'
+                }
+              }
+            }
+          },
+          {
+            name: 'mb_meta_dashboard_complexity',
+            description: 'Analyze dashboard complexity - card counts, load times, performance issues. Identify dashboards that need optimization. Requires MB_METADATA_ENABLED=true.',
+            inputSchema: {
+              type: 'object',
+              properties: {}
+            }
+          },
+          {
+            name: 'mb_meta_info',
+            description: 'Get overview of Metabase metadata database - active users, questions, dashboards, recent activity. Quick health check. Requires MB_METADATA_ENABLED=true.',
+            inputSchema: {
+              type: 'object',
+              properties: {}
+            }
+          },
+
+          // === PHASE 2: ADVANCED ANALYTICS ===
+          {
+            name: 'mb_meta_table_dependencies',
+            description: 'Analyze table dependencies - find all questions and dashboards that depend on a specific table. Essential for impact analysis before schema changes. Requires MB_METADATA_ENABLED=true.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                database_id: {
+                  type: 'number',
+                  description: 'Database ID containing the table'
+                },
+                table_name: {
+                  type: 'string',
+                  description: 'Name of the table to analyze'
+                },
+                schema_name: {
+                  type: 'string',
+                  description: 'Schema name (optional, recommended for disambiguation)'
+                }
               },
-              include_dashboards: {
-                type: 'boolean',
-                description: 'Include dashboards (default: true)',
-                default: true
+              required: ['database_id', 'table_name']
+            }
+          },
+          {
+            name: 'mb_meta_impact_analysis',
+            description: 'Analyze impact of removing a table - breaking changes, affected questions/dashboards, severity assessment, and recommendations. Critical for safe database migrations. Requires MB_METADATA_ENABLED=true.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                database_id: {
+                  type: 'number',
+                  description: 'Database ID'
+                },
+                table_name: {
+                  type: 'string',
+                  description: 'Table name to analyze for removal impact'
+                },
+                schema_name: {
+                  type: 'string',
+                  description: 'Schema name (optional)'
+                }
               },
-              include_collections: {
-                type: 'boolean',
-                description: 'Include collections (default: true)',
-                default: true
+              required: ['database_id', 'table_name']
+            }
+          },
+          {
+            name: 'mb_meta_optimization_recommendations',
+            description: 'Get comprehensive optimization recommendations - index suggestions, materialized view candidates, and cache optimization. Data-driven performance improvements. Requires MB_METADATA_ENABLED=true.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                database_id: {
+                  type: 'number',
+                  description: 'Database ID to analyze'
+                },
+                days: {
+                  type: 'number',
+                  description: 'Number of days to analyze (default: 30)',
+                  default: 30
+                },
+                include_matview_candidates: {
+                  type: 'boolean',
+                  description: 'Include materialized view recommendations (default: true)',
+                  default: true
+                },
+                include_cache_recommendations: {
+                  type: 'boolean',
+                  description: 'Include cache optimization suggestions (default: true)',
+                  default: true
+                }
               },
-              collection_ids: {
-                type: 'array',
-                description: 'Optional: Export specific collections only (array of IDs)',
-                items: { type: 'number' }
+              required: ['database_id']
+            }
+          },
+          {
+            name: 'mb_meta_error_patterns',
+            description: 'Analyze error patterns and categorize recurring errors - identify systemic issues, suggest resolutions, find questions with high error rates. Proactive error management. Requires MB_METADATA_ENABLED=true.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                days: {
+                  type: 'number',
+                  description: 'Number of days to analyze (default: 30)',
+                  default: 30
+                },
+                include_recurring_questions: {
+                  type: 'boolean',
+                  description: 'Include questions with recurring errors (default: true)',
+                  default: true
+                },
+                include_timeline: {
+                  type: 'boolean',
+                  description: 'Include temporal error analysis (default: true)',
+                  default: true
+                }
+              }
+            }
+          },
+
+          // === PHASE 3: EXPORT/IMPORT & MIGRATION ===
+          {
+            name: 'mb_meta_export_workspace',
+            description: '📤 Export workspace to JSON (questions, dashboards, collections). READ-ONLY operation - safe to execute. Perfect for backups and migrations. Requires MB_METADATA_ENABLED=true.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                include_questions: {
+                  type: 'boolean',
+                  description: 'Include questions (default: true)',
+                  default: true
+                },
+                include_dashboards: {
+                  type: 'boolean',
+                  description: 'Include dashboards (default: true)',
+                  default: true
+                },
+                include_collections: {
+                  type: 'boolean',
+                  description: 'Include collections (default: true)',
+                  default: true
+                },
+                collection_ids: {
+                  type: 'array',
+                  description: 'Optional: Export specific collections only (array of IDs)',
+                  items: { type: 'number' }
+                },
+                archived: {
+                  type: 'boolean',
+                  description: 'Include archived items (default: false)',
+                  default: false
+                }
+              }
+            }
+          },
+          {
+            name: 'mb_meta_import_preview',
+            description: '🔍 Preview import impact WITHOUT making changes (dry-run). Analyzes conflicts, detects issues, provides recommendations. ALWAYS run this before actual import. Requires MB_METADATA_ENABLED=true.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                workspace: {
+                  type: 'object',
+                  description: 'Workspace data from export_workspace'
+                }
               },
-              archived: {
-                type: 'boolean',
-                description: 'Include archived items (default: false)',
-                default: false
+              required: ['workspace']
+            }
+          },
+          {
+            name: 'mb_meta_compare_environments',
+            description: '🔄 Compare current environment with another (dev → staging → prod). Identifies drift, missing items, and differences. READ-ONLY operation. Requires MB_METADATA_ENABLED=true.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                target_workspace: {
+                  type: 'object',
+                  description: 'Workspace export from target environment'
+                }
+              },
+              required: ['target_workspace']
+            }
+          },
+          {
+            name: 'mb_meta_auto_cleanup',
+            description: '🧹 Auto-cleanup unused content with SAFETY CHECKS. ⚠️ DRY-RUN by default, requires approved:true for execution. Finds unused questions (180+ days), orphaned cards, empty collections, broken questions. Requires MB_METADATA_ENABLED=true.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                dry_run: {
+                  type: 'boolean',
+                  description: '🔒 SAFETY: Dry-run mode (default: true). Set false to execute',
+                  default: true
+                },
+                approved: {
+                  type: 'boolean',
+                  description: '🔒 SAFETY: Requires explicit approval (default: false). Set true to execute',
+                  default: false
+                },
+                unused_days: {
+                  type: 'number',
+                  description: 'Days without usage to consider content unused (default: 180)',
+                  default: 180
+                },
+                orphaned_cards: {
+                  type: 'boolean',
+                  description: 'Include orphaned cards (not in dashboards) (default: true)',
+                  default: true
+                },
+                empty_collections: {
+                  type: 'boolean',
+                  description: 'Include empty collections (default: true)',
+                  default: true
+                },
+                broken_questions: {
+                  type: 'boolean',
+                  description: 'Include questions with 100% error rate (default: true)',
+                  default: true
+                }
               }
             }
           }
-        },
-        {
-          name: 'mb_meta_import_preview',
-          description: '🔍 Preview import impact WITHOUT making changes (dry-run). Analyzes conflicts, detects issues, provides recommendations. ALWAYS run this before actual import. Requires MB_METADATA_ENABLED=true.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              workspace: {
-                type: 'object',
-                description: 'Workspace data from export_workspace'
-              }
-            },
-            required: ['workspace']
-          }
-        },
-        {
-          name: 'mb_meta_compare_environments',
-          description: '🔄 Compare current environment with another (dev → staging → prod). Identifies drift, missing items, and differences. READ-ONLY operation. Requires MB_METADATA_ENABLED=true.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              target_workspace: {
-                type: 'object',
-                description: 'Workspace export from target environment'
-              }
-            },
-            required: ['target_workspace']
-          }
-        },
-        {
-          name: 'mb_meta_auto_cleanup',
-          description: '🧹 Auto-cleanup unused content with SAFETY CHECKS. ⚠️ DRY-RUN by default, requires approved:true for execution. Finds unused questions (180+ days), orphaned cards, empty collections, broken questions. Requires MB_METADATA_ENABLED=true.',
-          inputSchema: {
-            type: 'object',
-            properties: {
-              dry_run: {
-                type: 'boolean',
-                description: '🔒 SAFETY: Dry-run mode (default: true). Set false to execute',
-                default: true
-              },
-              approved: {
-                type: 'boolean',
-                description: '🔒 SAFETY: Requires explicit approval (default: false). Set true to execute',
-                default: false
-              },
-              unused_days: {
-                type: 'number',
-                description: 'Days without usage to consider content unused (default: 180)',
-                default: 180
-              },
-              orphaned_cards: {
-                type: 'boolean',
-                description: 'Include orphaned cards (not in dashboards) (default: true)',
-                default: true
-              },
-              empty_collections: {
-                type: 'boolean',
-                description: 'Include empty collections (default: true)',
-                default: true
-              },
-              broken_questions: {
-                type: 'boolean',
-                description: 'Include questions with 100% error rate (default: true)',
-                default: true
-              }
-            }
-          }
-        }
         ],
       };
     });
@@ -3411,11 +3451,11 @@ class MetabaseMCPServer {
         }
       } catch (error) {
         logger.error(`Tool ${name} failed:`, error);
-        
+
         // Specific error handling
         let errorMessage = error.message;
         let errorCode = ErrorCode.InternalError;
-        
+
         if (error.message.includes('authentication failed')) {
           errorMessage = 'Database authentication failed. Check connection credentials.';
           errorCode = ErrorCode.InvalidRequest;
@@ -3429,7 +3469,7 @@ class MetabaseMCPServer {
           errorMessage = `Resource not found: ${error.message}`;
           errorCode = ErrorCode.InvalidRequest;
         }
-        
+
         throw new McpError(errorCode, errorMessage);
       }
     });
@@ -3437,21 +3477,48 @@ class MetabaseMCPServer {
 
   async handleGetDatabases() {
     await this.ensureInitialized();
-    
+
     if (this.initError) {
       throw new McpError(ErrorCode.InternalError, `Failed to initialize: ${this.initError.message}`);
     }
-    
-    const response = await this.metabaseClient.getDatabases();
-    const databases = response.data || response; // Handle both formats
-    
+
+    // Use cache for database list
+    const cacheKey = CacheKeys.databases();
+    const cached = await this.cache.getOrSet(cacheKey, async () => {
+      const response = await this.metabaseClient.getDatabases();
+      return response.data || response;
+    });
+
+    const databases = cached.data;
+    const source = cached.source;
+
+    // Log cache status
+    if (source === 'cache') {
+      logger.debug('Databases fetched from cache');
+    }
+
+    // Use response optimizer for compact output
+    const optimizedResponse = formatListResponse(
+      '📊 Available Databases',
+      databases,
+      minimalDatabase,
+      { format: ResponseFormat.COMPACT }
+    );
+
+    // If optimization returned a result, use it; otherwise fall back to standard format
+    if (optimizedResponse) {
+      // Add cache indicator
+      optimizedResponse.content[0].text += source === 'cache' ? '\\n\\n_📦 From cache_' : '';
+      return optimizedResponse;
+    }
+
     return {
       content: [
         {
           type: 'text',
           text: `Found ${databases.length} databases:\\n${databases
             .map(db => `- ${db.name} (${db.engine}) - ID: ${db.id}`)
-            .join('\\n')}`,
+            .join('\\n')}${source === 'cache' ? '\\n\\n_📦 From cache_' : ''}`,
         },
       ],
     };
@@ -3459,13 +3526,13 @@ class MetabaseMCPServer {
 
   async handleGetDatabaseSchemas(databaseId) {
     await this.ensureInitialized();
-    
+
     if (this.initError) {
       throw new McpError(ErrorCode.InternalError, `Failed to initialize: ${this.initError.message}`);
     }
-    
+
     const response = await this.metabaseClient.getDatabaseSchemas(databaseId);
-    
+
     return {
       content: [
         {
@@ -3478,14 +3545,14 @@ class MetabaseMCPServer {
 
   async handleGetDatabaseTables(databaseId) {
     await this.ensureInitialized();
-    
+
     if (this.initError) {
       throw new McpError(ErrorCode.InternalError, `Failed to initialize: ${this.initError.message}`);
     }
-    
+
     const response = await this.metabaseClient.getDatabaseTables(databaseId);
     const tables = response.tables || response.data || response; // Handle multiple formats
-    
+
     return {
       content: [
         {
@@ -3500,7 +3567,7 @@ class MetabaseMCPServer {
 
   async handleExecuteSQL(databaseId, sql) {
     await this.ensureInitialized();
-    
+
     if (this.initError) {
       throw new McpError(ErrorCode.InternalError, `Failed to initialize: ${this.initError.message}`);
     }
@@ -3512,23 +3579,23 @@ class MetabaseMCPServer {
       if (writePattern.test(sql)) {
         const blockedOperation = sql.match(writePattern)?.[0]?.toUpperCase() || 'WRITE';
         logger.warn(`Read-only mode: Blocked ${blockedOperation} operation`, { sql: sql.substring(0, 100) });
-        
+
         return {
           content: [
             {
               type: 'text',
               text: `🔒 **Read-Only Mode Active**\\n\\n` +
-                    `⛔ **Operation Blocked:** \`${blockedOperation}\`\\n\\n` +
-                    `This MCP server is running in read-only mode for security.\\n` +
-                    `Write operations (INSERT, UPDATE, DELETE, DROP, etc.) are not allowed.\\n\\n` +
-                    `To enable write operations, set \`METABASE_READ_ONLY_MODE=false\` in your environment.\\n\\n` +
-                    `🔍 **Attempted Query:**\\n\`\`\`sql\\n${sql.substring(0, 200)}${sql.length > 200 ? '...' : ''}\\n\`\`\``,
+                `⛔ **Operation Blocked:** \`${blockedOperation}\`\\n\\n` +
+                `This MCP server is running in read-only mode for security.\\n` +
+                `Write operations (INSERT, UPDATE, DELETE, DROP, etc.) are not allowed.\\n\\n` +
+                `To enable write operations, set \`METABASE_READ_ONLY_MODE=false\` in your environment.\\n\\n` +
+                `🔍 **Attempted Query:**\\n\`\`\`sql\\n${sql.substring(0, 200)}${sql.length > 200 ? '...' : ''}\\n\`\`\``,
             },
           ],
         };
       }
     }
-    
+
     const startTime = Date.now();
     let result = null;
     let error = null;
@@ -3545,22 +3612,22 @@ class MetabaseMCPServer {
       // Format the result for display
       const rows = result.data.rows || [];
       const columns = result.data.cols || [];
-      
+
       let output = `✅ **Query executed successfully!**\\n\\n`;
       output += `📊 **Results Summary:**\\n`;
       output += `• Database ID: ${databaseId}\\n`;
       output += `• Columns: ${columns.length} (${columns.map(col => col.name).join(', ')})\\n`;
       output += `• Rows returned: ${rows.length}\\n`;
       output += `• Execution time: ${executionTime}ms\\n\\n`;
-      
+
       if (rows.length > 0) {
         output += `📋 **Sample Data (first 5 rows):**\\n\`\`\`\\n`;
-        
+
         // Create table header
         const headers = columns.map(col => col.name);
         output += headers.join(' | ') + '\\n';
         output += headers.map(() => '---').join(' | ') + '\\n';
-        
+
         // Add data rows
         rows.slice(0, 5).forEach((row) => {
           const formattedRow = row.map(cell => {
@@ -3572,9 +3639,9 @@ class MetabaseMCPServer {
           });
           output += formattedRow.join(' | ') + '\\n';
         });
-        
+
         output += '\`\`\`\\n';
-        
+
         if (rows.length > 5) {
           output += `\\n... and ${rows.length - 5} more rows\\n`;
         }
@@ -3612,11 +3679,11 @@ class MetabaseMCPServer {
       }
 
       const output = `❌ **Query execution failed!**\\n\\n` +
-                    `🚫 **Error Details:**\\n` +
-                    `• Database ID: ${databaseId}\\n` +
-                    `• Execution time: ${executionTime}ms\\n` +
-                    `• Error: ${err.message}\\n\\n` +
-                    `🔍 **Failed Query:**\\n\`\`\`sql\\n${sql}\\n\`\`\``;
+        `🚫 **Error Details:**\\n` +
+        `• Database ID: ${databaseId}\\n` +
+        `• Execution time: ${executionTime}ms\\n` +
+        `• Error: ${err.message}\\n\\n` +
+        `🔍 **Failed Query:**\\n\`\`\`sql\\n${sql}\\n\`\`\``;
 
       return {
         content: [
@@ -3651,7 +3718,7 @@ class MetabaseMCPServer {
   async handleGetQuestions(collectionId) {
     const response = await this.metabaseClient.getQuestions(collectionId);
     const questions = response.data || response; // Handle both formats
-    
+
     return {
       content: [
         {
@@ -3680,7 +3747,7 @@ class MetabaseMCPServer {
   async handleGetDashboards() {
     const response = await this.metabaseClient.getDashboards();
     const dashboards = response.data || response; // Handle both formats
-    
+
     return {
       content: [
         {
@@ -3696,46 +3763,46 @@ class MetabaseMCPServer {
   async handleCreateExecutiveDashboard(args) {
     try {
       const { name, database_id, business_domain = 'general', time_period = 'last_30_days', collection_id, schema_name } = args;
-      
+
       // Step 1: Analyze database schema to understand available data
       const schemas = await this.metabaseClient.getDatabaseSchemas(database_id);
       const targetSchema = schema_name || schemas.find(s => s.name && !['information_schema', 'pg_catalog'].includes(s.name))?.name;
-      
+
       if (!targetSchema) {
         throw new Error('No suitable schema found for analysis');
       }
-      
+
       // Step 2: Get tables and analyze structure
       const directClient = await this.getDirectClient(database_id);
       const tables = await directClient.exploreSchemaTablesDetailed(targetSchema, true, 10);
-      
+
       if (tables.length === 0) {
         throw new Error(`No tables found in schema '${targetSchema}'`);
       }
-      
+
       // Step 3: Create dashboard
       const dashboard = await this.metabaseClient.createDashboard({
         name: name,
         description: `Executive dashboard for ${business_domain} - Auto-generated with AI analysis`,
         collection_id: collection_id
       });
-      
+
       // Step 4: Generate executive questions based on business domain
       const executiveQuestions = await this.generateExecutiveQuestions(database_id, targetSchema, tables, business_domain, time_period);
-      
+
       let output = `✅ Executive Dashboard Created Successfully!\\n\\n`;
       output += `📊 Dashboard: ${name} (ID: ${dashboard.id})\\n`;
       output += `🔗 URL: ${process.env.METABASE_URL}/dashboard/${dashboard.id}\\n\\n`;
       output += `📈 Generated ${executiveQuestions.length} executive questions:\\n`;
-      
+
       // Step 5: Add questions to dashboard with proper layout
       for (let i = 0; i < executiveQuestions.length; i++) {
         const question = executiveQuestions[i];
         output += `- ${question.name}\\n`;
-        
+
         // Calculate position based on executive layout
         const position = this.calculateExecutiveLayout(i, executiveQuestions.length);
-        
+
         // Add card to dashboard (you'll need to implement this in MetabaseClient)
         try {
           await this.metabaseClient.addCardToDashboard(dashboard.id, question.id, position);
@@ -3743,17 +3810,17 @@ class MetabaseMCPServer {
           output += `  ⚠️ Warning: Could not add to dashboard: ${error.message}\\n`;
         }
       }
-      
+
       output += `\\n🎯 Executive Dashboard Features:\\n`;
       output += `- KPI overview cards\\n`;
       output += `- Trend analysis charts\\n`;
       output += `- Performance metrics\\n`;
       output += `- Time-based filtering\\n`;
-      
+
       return {
         content: [{ type: 'text', text: output }],
       };
-      
+
     } catch (error) {
       return {
         content: [{ type: 'text', text: `❌ Error creating executive dashboard: ${error.message}` }],
@@ -3764,22 +3831,22 @@ class MetabaseMCPServer {
   async handleCreateParametricQuestion(args) {
     try {
       const question = await this.metabaseClient.createParametricQuestion(args);
-      
+
       let output = `✅ Parametric Question Created Successfully!\\n\\n`;
       output += `❓ Question: ${question.name} (ID: ${question.id})\\n`;
       output += `🔗 URL: ${process.env.METABASE_URL}/question/${question.id}\\n`;
-      
+
       if (args.parameters && args.parameters.length > 0) {
         output += `\\n🎛️ Parameters:\\n`;
         args.parameters.forEach(param => {
           output += `- ${param.display_name} (${param.type})${param.required ? ' *required' : ''}\\n`;
         });
       }
-      
+
       return {
         content: [{ type: 'text', text: output }],
       };
-      
+
     } catch (error) {
       return {
         content: [{ type: 'text', text: `❌ Error creating parametric question: ${error.message}` }],
@@ -3790,19 +3857,19 @@ class MetabaseMCPServer {
   async handleAddCardToDashboard(args) {
     try {
       const result = await this.metabaseClient.addCardToDashboard(
-        args.dashboard_id, 
-        args.question_id, 
+        args.dashboard_id,
+        args.question_id,
         args.position,
         args.parameter_mappings
       );
-      
+
       return {
-        content: [{ 
-          type: 'text', 
-          text: `✅ Card added to dashboard successfully!\\nCard ID: ${result.id}\\nPosition: Row ${args.position?.row || 0}, Col ${args.position?.col || 0}` 
+        content: [{
+          type: 'text',
+          text: `✅ Card added to dashboard successfully!\\nCard ID: ${result.id}\\nPosition: Row ${args.position?.row || 0}, Col ${args.position?.col || 0}`
         }],
       };
-      
+
     } catch (error) {
       return {
         content: [{ type: 'text', text: `❌ Error adding card to dashboard: ${error.message}` }],
@@ -3813,14 +3880,14 @@ class MetabaseMCPServer {
   async handleCreateMetric(args) {
     try {
       const metric = await this.metabaseClient.createMetric(args);
-      
+
       return {
-        content: [{ 
-          type: 'text', 
-          text: `✅ Metric created successfully!\\nName: ${metric.name}\\nID: ${metric.id}\\nType: ${args.aggregation.type}` 
+        content: [{
+          type: 'text',
+          text: `✅ Metric created successfully!\\nName: ${metric.name}\\nID: ${metric.id}\\nType: ${args.aggregation.type}`
         }],
       };
-      
+
     } catch (error) {
       return {
         content: [{ type: 'text', text: `❌ Error creating metric: ${error.message}` }],
@@ -3831,14 +3898,14 @@ class MetabaseMCPServer {
   async handleAddDashboardFilter(args) {
     try {
       const filter = await this.metabaseClient.addDashboardFilter(args.dashboard_id, args);
-      
+
       return {
-        content: [{ 
-          type: 'text', 
-          text: `✅ Dashboard filter added successfully!\\nFilter: ${args.name} (${args.type})\\nFilter ID: ${filter.id}` 
+        content: [{
+          type: 'text',
+          text: `✅ Dashboard filter added successfully!\\nFilter: ${args.name} (${args.type})\\nFilter ID: ${filter.id}`
         }],
       };
-      
+
     } catch (error) {
       return {
         content: [{ type: 'text', text: `❌ Error adding dashboard filter: ${error.message}` }],
@@ -3849,14 +3916,14 @@ class MetabaseMCPServer {
   async handleOptimizeDashboardLayout(args) {
     try {
       const result = await this.metabaseClient.optimizeDashboardLayout(args);
-      
+
       return {
-        content: [{ 
-          type: 'text', 
-          text: `✅ Dashboard layout optimized!\\nStyle: ${args.layout_style}\\nCards repositioned: ${result.repositioned_cards}\\nOptimizations applied: ${result.optimizations.join(', ')}` 
+        content: [{
+          type: 'text',
+          text: `✅ Dashboard layout optimized!\\nStyle: ${args.layout_style}\\nCards repositioned: ${result.repositioned_cards}\\nOptimizations applied: ${result.optimizations.join(', ')}`
         }],
       };
-      
+
     } catch (error) {
       return {
         content: [{ type: 'text', text: `❌ Error optimizing dashboard layout: ${error.message}` }],
@@ -3869,7 +3936,7 @@ class MetabaseMCPServer {
       const { database_id, target_type = 'all', force_update = false } = args;
       const timestamp = new Date().toISOString().split('T')[0].replace(/-/g, '');
       const aiSignature = `[Generated by AI on ${timestamp}@AI]`;
-      
+
       let updated = {
         databases: 0,
         tables: 0,
@@ -3957,7 +4024,7 @@ class MetabaseMCPServer {
     try {
       const baseUrl = 'https://www.metabase.com/docs/latest/';
       let url = baseUrl;
-      
+
       // Map topics to specific documentation URLs
       const topicMappings = {
         'dashboard-api': 'api/dashboard',
@@ -3968,33 +4035,33 @@ class MetabaseMCPServer {
         'database': 'databases/connecting',
         'embedding': 'embedding/introduction'
       };
-      
+
       if (args.topic && topicMappings[args.topic]) {
         url += topicMappings[args.topic];
       } else if (args.topic) {
         url += `${args.topic}`;
       }
-      
+
       // Use WebFetch to get documentation
       const response = await fetch(url);
       const content = await response.text();
-      
+
       // Extract relevant information
       let output = `📚 Metabase Documentation: ${args.topic}\\n\\n`;
       output += `🔗 URL: ${url}\\n\\n`;
-      
+
       if (args.search_terms) {
         output += `🔍 Searching for: ${args.search_terms}\\n\\n`;
       }
-      
+
       // Simple content extraction (you might want to enhance this)
       const lines = content.split('\\n').slice(0, 20);
       output += lines.join('\\n');
-      
+
       return {
         content: [{ type: 'text', text: output }],
       };
-      
+
     } catch (error) {
       return {
         content: [{ type: 'text', text: `❌ Error fetching Metabase documentation: ${error.message}` }],
@@ -4005,13 +4072,13 @@ class MetabaseMCPServer {
   async handleExploreMetabaseDocs(args) {
     try {
       const { depth = 2, focus_areas = ['api', 'dashboards', 'questions'], include_examples = true } = args;
-      
+
       let output = `🔍 Exploring Metabase Documentation (Depth: ${depth})\\n\\n`;
-      
+
       const baseUrl = 'https://www.metabase.com/docs/latest/';
       const discovered = new Set();
       const results = {};
-      
+
       // Main documentation sections to explore
       const mainSections = {
         'api': 'api/',
@@ -4023,63 +4090,63 @@ class MetabaseMCPServer {
         'troubleshooting': 'troubleshooting/',
         'installation': 'installation/'
       };
-      
+
       // Explore focused areas
       for (const area of focus_areas) {
         if (mainSections[area]) {
           output += `📂 Exploring ${area.toUpperCase()}:\\n`;
-          
+
           try {
             const sectionUrl = baseUrl + mainSections[area];
             const response = await fetch(sectionUrl);
             const content = await response.text();
-            
+
             // Extract section information
             const sections = this.extractDocumentationSections(content, area);
             results[area] = sections;
-            
+
             output += `  ✅ Found ${sections.length} subsections\\n`;
             sections.slice(0, 5).forEach(section => {
               output += `  - ${section.title}: ${section.description}\\n`;
             });
-            
+
             if (sections.length > 5) {
               output += `  ... and ${sections.length - 5} more\\n`;
             }
-            
+
             output += `\\n`;
-            
+
           } catch (error) {
             output += `  ❌ Error exploring ${area}: ${error.message}\\n\\n`;
           }
         }
       }
-      
+
       // API Reference Discovery
       if (focus_areas.includes('api')) {
         output += `🔧 API Endpoints Discovery:\\n`;
         try {
           const apiEndpoints = await this.discoverMetabaseApiEndpoints();
           output += `  ✅ Found ${apiEndpoints.length} API endpoints\\n`;
-          
+
           const categories = {};
           apiEndpoints.forEach(endpoint => {
             const category = endpoint.category || 'general';
             if (!categories[category]) categories[category] = [];
             categories[category].push(endpoint);
           });
-          
+
           Object.entries(categories).forEach(([category, endpoints]) => {
             output += `  📋 ${category}: ${endpoints.length} endpoints\\n`;
           });
-          
+
           output += `\\n`;
-          
+
         } catch (error) {
           output += `  ❌ Error discovering API endpoints: ${error.message}\\n\\n`;
         }
       }
-      
+
       // Include examples if requested
       if (include_examples) {
         output += `💡 Key Examples Found:\\n`;
@@ -4089,17 +4156,17 @@ class MetabaseMCPServer {
         output += `- API authentication methods\\n`;
         output += `- Database connection configurations\\n\\n`;
       }
-      
+
       output += `📊 Exploration Summary:\\n`;
       output += `- Areas explored: ${focus_areas.join(', ')}\\n`;
       output += `- Documentation depth: ${depth}\\n`;
       output += `- Total sections found: ${Object.values(results).reduce((sum, sections) => sum + sections.length, 0)}\\n`;
       output += `\\n🔗 Main Documentation: ${baseUrl}`;
-      
+
       return {
         content: [{ type: 'text', text: output }],
       };
-      
+
     } catch (error) {
       return {
         content: [{ type: 'text', text: `❌ Error exploring Metabase documentation: ${error.message}` }],
@@ -4110,13 +4177,13 @@ class MetabaseMCPServer {
   async handleSearchMetabaseDocs(args) {
     try {
       const { query, doc_type = 'all', max_results = 5 } = args;
-      
+
       let output = `🔍 Searching Metabase Documentation for: "${query}"\\n\\n`;
-      
+
       // Search in different documentation areas
       const searchResults = [];
       const baseUrl = 'https://www.metabase.com/docs/latest/';
-      
+
       // Define search areas based on doc_type
       const searchAreas = {
         'api': ['api/', 'api-key/', 'api/dashboard/', 'api/card/'],
@@ -4125,21 +4192,21 @@ class MetabaseMCPServer {
         'examples': ['examples/', 'learn/'],
         'all': ['api/', 'dashboards/', 'questions/', 'databases/', 'embedding/', 'administration/']
       };
-      
+
       const areas = searchAreas[doc_type] || searchAreas['all'];
-      
+
       for (const area of areas) {
         try {
           const searchUrl = baseUrl + area;
           const response = await fetch(searchUrl);
           const content = await response.text();
-          
+
           // Search for query terms in content
           const relevanceScore = this.calculateRelevanceScore(content, query);
-          
+
           if (relevanceScore > 0.3) { // Threshold for relevance
             const extractedInfo = this.extractRelevantContent(content, query);
-            
+
             searchResults.push({
               url: searchUrl,
               area: area.replace('/', ''),
@@ -4149,17 +4216,17 @@ class MetabaseMCPServer {
               codeExamples: extractedInfo.codeExamples
             });
           }
-          
+
         } catch (error) {
           // Continue searching other areas even if one fails
           console.error(`Search error in ${area}:`, error.message);
         }
       }
-      
+
       // Sort by relevance and limit results
       searchResults.sort((a, b) => b.relevance - a.relevance);
       const topResults = searchResults.slice(0, max_results);
-      
+
       if (topResults.length === 0) {
         output += `❌ No relevant documentation found for "${query}"\\n\\n`;
         output += `💡 Try these suggestions:\\n`;
@@ -4169,27 +4236,27 @@ class MetabaseMCPServer {
         output += `- Search for "dashboard", "question", "api", etc.\\n`;
       } else {
         output += `✅ Found ${topResults.length} relevant pages:\\n\\n`;
-        
+
         topResults.forEach((result, index) => {
           output += `${index + 1}. **${result.title}** (${result.area})\\n`;
           output += `   🔗 ${result.url}\\n`;
           output += `   📊 Relevance: ${(result.relevance * 100).toFixed(0)}%\\n`;
           output += `   📝 ${result.content.substring(0, 200)}...\\n`;
-          
+
           if (result.codeExamples.length > 0) {
             output += `   💻 Code examples available\\n`;
           }
-          
+
           output += `\\n`;
         });
       }
-      
+
       output += `🔍 Search completed across ${areas.length} documentation areas`;
-      
+
       return {
         content: [{ type: 'text', text: output }],
       };
-      
+
     } catch (error) {
       return {
         content: [{ type: 'text', text: `❌ Error searching Metabase documentation: ${error.message}` }],
@@ -4200,19 +4267,19 @@ class MetabaseMCPServer {
   async handleMetabaseApiReference(args) {
     try {
       const { endpoint_category = 'all', include_examples = true, auth_info = true } = args;
-      
+
       let output = `📚 Metabase API Reference\\n\\n`;
-      
+
       // Metabase API base information
       const apiBaseUrl = 'https://www.metabase.com/docs/latest/api/';
-      
+
       if (auth_info) {
         output += `🔐 Authentication:\\n`;
         output += `- API Key: Include X-API-Key header\\n`;
         output += `- Session Token: Use /api/session endpoint\\n`;
         output += `- Base URL: {metabase-url}/api/\\n\\n`;
       }
-      
+
       // API endpoint categories
       const apiCategories = {
         'dashboard': {
@@ -4282,22 +4349,22 @@ class MetabaseMCPServer {
           ]
         }
       };
-      
+
       // Show specific category or all
-      const categoriesToShow = endpoint_category === 'all' 
-        ? Object.keys(apiCategories) 
+      const categoriesToShow = endpoint_category === 'all'
+        ? Object.keys(apiCategories)
         : [endpoint_category];
-      
+
       for (const category of categoriesToShow) {
         if (apiCategories[category]) {
           const categoryData = apiCategories[category];
-          
+
           output += `🔧 ${category.toUpperCase()} API:\\n`;
-          
+
           categoryData.endpoints.forEach(endpoint => {
             output += `  ${endpoint}\\n`;
           });
-          
+
           if (include_examples && categoryData.examples) {
             output += `\\n  💻 Examples:\\n`;
             Object.entries(categoryData.examples).forEach(([type, example]) => {
@@ -4305,28 +4372,28 @@ class MetabaseMCPServer {
               output += `  ${example}\\n\\n`;
             });
           }
-          
+
           output += `\\n`;
         }
       }
-      
+
       // Common response formats
       output += `📋 Common Response Formats:\\n`;
       output += `- Success: {"id": 123, "name": "...", ...}\\n`;
       output += `- Error: {"message": "error description"}\\n`;
       output += `- List: {"data": [...], "total": 100}\\n\\n`;
-      
+
       // Rate limiting info
       output += `⚡ Rate Limiting:\\n`;
       output += `- API key: 1000 requests/hour\\n`;
       output += `- Session: 100 requests/minute\\n\\n`;
-      
+
       output += `🔗 Full API Documentation: ${apiBaseUrl}`;
-      
+
       return {
         content: [{ type: 'text', text: output }],
       };
-      
+
     } catch (error) {
       return {
         content: [{ type: 'text', text: `❌ Error getting API reference: ${error.message}` }],
@@ -4339,7 +4406,7 @@ class MetabaseMCPServer {
     // Simple section extraction - in a real implementation, you'd use proper HTML parsing
     const sections = [];
     const lines = content.split('\\n');
-    
+
     let currentSection = null;
     for (const line of lines) {
       if (line.includes('<h2') || line.includes('<h3')) {
@@ -4358,11 +4425,11 @@ class MetabaseMCPServer {
         }
       }
     }
-    
+
     if (currentSection) {
       sections.push(currentSection);
     }
-    
+
     return sections;
   }
 
@@ -4396,10 +4463,10 @@ class MetabaseMCPServer {
   calculateRelevanceScore(content, query) {
     const queryTerms = query.toLowerCase().split(' ');
     const contentLower = content.toLowerCase();
-    
+
     let score = 0;
     let totalTerms = queryTerms.length;
-    
+
     for (const term of queryTerms) {
       if (contentLower.includes(term)) {
         score += 1;
@@ -4409,7 +4476,7 @@ class MetabaseMCPServer {
         }
       }
     }
-    
+
     return score / totalTerms;
   }
 
@@ -4417,18 +4484,18 @@ class MetabaseMCPServer {
     // Extract title from HTML
     const titleMatch = content.match(/<title>(.*?)<\/title>/i);
     const title = titleMatch ? titleMatch[1] : 'Documentation Page';
-    
+
     // Extract relevant text paragraphs
     const queryTerms = query.toLowerCase().split(' ');
     const sentences = content.split('.').filter(sentence => {
       const sentenceLower = sentence.toLowerCase();
       return queryTerms.some(term => sentenceLower.includes(term));
     });
-    
+
     // Extract code examples
     const codeBlocks = content.match(/```[\\s\\S]*?```/g) || [];
     const codeExamples = codeBlocks.map(block => block.replace(/```/g, '').trim());
-    
+
     return {
       title: title.replace(' - Metabase', ''),
       content: sentences.slice(0, 3).join('.').substring(0, 500),
@@ -4444,12 +4511,12 @@ class MetabaseMCPServer {
       'table': { sizeX: 12, sizeY: 6 },   // Tables
       'metric': { sizeX: 4, sizeY: 3 }    // Metrics
     };
-    
+
     // Executive layout: 
     // Row 0: 4 KPI cards (3x3 each)
     // Row 1: 2 charts (6x4 each) 
     // Row 2: 1 table (12x6)
-    
+
     if (index < 4) {
       // KPI cards in top row
       return {
@@ -4480,26 +4547,26 @@ class MetabaseMCPServer {
   // Helper method to generate executive questions based on business domain
   async generateExecutiveQuestions(databaseId, schemaName, tables, businessDomain, timePeriod) {
     const questions = [];
-    
+
     // Analyze tables to find relevant business entities
-    const salesTables = tables.filter(t => 
-      t.name.toLowerCase().includes('sale') || 
+    const salesTables = tables.filter(t =>
+      t.name.toLowerCase().includes('sale') ||
       t.name.toLowerCase().includes('order') ||
       t.name.toLowerCase().includes('transaction')
     );
-    
-    const customerTables = tables.filter(t => 
-      t.name.toLowerCase().includes('customer') || 
+
+    const customerTables = tables.filter(t =>
+      t.name.toLowerCase().includes('customer') ||
       t.name.toLowerCase().includes('user') ||
       t.name.toLowerCase().includes('client')
     );
-    
-    const productTables = tables.filter(t => 
-      t.name.toLowerCase().includes('product') || 
+
+    const productTables = tables.filter(t =>
+      t.name.toLowerCase().includes('product') ||
       t.name.toLowerCase().includes('item') ||
       t.name.toLowerCase().includes('inventory')
     );
-    
+
     // Generate KPI questions based on domain
     if (salesTables.length > 0) {
       const salesTable = salesTables[0];
@@ -4508,14 +4575,14 @@ class MetabaseMCPServer {
         sql: `SELECT SUM(COALESCE(amount, total, price, 0)) as revenue FROM ${schemaName}.${salesTable.name} WHERE created_at >= CURRENT_DATE - INTERVAL '30 days'`,
         visualization: "number"
       });
-      
+
       questions.push({
         name: "Sales Trend",
         sql: `SELECT DATE(created_at) as date, SUM(COALESCE(amount, total, price, 0)) as daily_revenue FROM ${schemaName}.${salesTable.name} WHERE created_at >= CURRENT_DATE - INTERVAL '30 days' GROUP BY DATE(created_at) ORDER BY date`,
         visualization: "line"
       });
     }
-    
+
     if (customerTables.length > 0) {
       const customerTable = customerTables[0];
       questions.push({
@@ -4523,14 +4590,14 @@ class MetabaseMCPServer {
         sql: `SELECT COUNT(*) as customer_count FROM ${schemaName}.${customerTable.name}`,
         visualization: "number"
       });
-      
+
       questions.push({
         name: "New Customers (30d)",
         sql: `SELECT COUNT(*) as new_customers FROM ${schemaName}.${customerTable.name} WHERE created_at >= CURRENT_DATE - INTERVAL '30 days'`,
         visualization: "number"
       });
     }
-    
+
     // Create questions in Metabase (simplified for demo)
     for (const q of questions) {
       try {
@@ -4545,7 +4612,7 @@ class MetabaseMCPServer {
         console.error(`Error creating question ${q.name}:`, error);
       }
     }
-    
+
     return questions;
   }
 
@@ -4615,7 +4682,7 @@ class MetabaseMCPServer {
 
   async handleGetConnectionInfo(databaseId) {
     const connectionInfo = await this.metabaseClient.getDatabaseConnectionInfo(databaseId);
-    
+
     // Güvenlik için şifreyi gizle
     const safeInfo = { ...connectionInfo };
     if (safeInfo.password) {
@@ -4635,49 +4702,49 @@ class MetabaseMCPServer {
   async handleCreateTableDirect(args) {
     const startTime = Date.now();
     const connection = await this.getConnection(args.database_id);
-    
+
     // Schema seçimi kontrolü ve bilgilendirme
     if (!args.schema && connection.type === 'direct') {
       const client = connection.client;
       const schemas = await client.getSchemas();
       const currentSchema = await client.getCurrentSchema();
-      
+
       return {
         content: [
           {
             type: 'text',
             text: `⚠️  **SCHEMA SELECTION REQUIRED**\\n\\n` +
-                  `🔗 **Connection Type:** DIRECT DATABASE (PostgreSQL)\\n` +
-                  `📂 **Current Schema:** ${currentSchema}\\n\\n` +
-                  `📋 **Available Schemas:**\\n${schemas.map(s => `  • ${s}`).join('\\n')}\\n\\n` +
-                  `🛠️  **Next Steps:** Please specify a schema parameter and re-run:\\n` +
-                  `\`\`\`json\\n{\\n  "schema": "${currentSchema || 'public'}",\\n  "database_id": ${args.database_id},\\n  "table_name": "${args.table_name}",\\n  "columns": [...],\\n  "dry_run": false,\\n  "approved": true\\n}\\n\`\`\``,
+              `🔗 **Connection Type:** DIRECT DATABASE (PostgreSQL)\\n` +
+              `📂 **Current Schema:** ${currentSchema}\\n\\n` +
+              `📋 **Available Schemas:**\\n${schemas.map(s => `  • ${s}`).join('\\n')}\\n\\n` +
+              `🛠️  **Next Steps:** Please specify a schema parameter and re-run:\\n` +
+              `\`\`\`json\\n{\\n  "schema": "${currentSchema || 'public'}",\\n  "database_id": ${args.database_id},\\n  "table_name": "${args.table_name}",\\n  "columns": [...],\\n  "dry_run": false,\\n  "approved": true\\n}\\n\`\`\``,
           },
         ],
       };
     }
-    
+
     // Dry run kontrolü
     if (args.dry_run !== false) {
       const tableName = 'claude_ai_' + args.table_name;
       const schemaPrefix = args.schema ? `${args.schema}.` : '';
       const fullTableName = `${schemaPrefix}${tableName}`;
-      const columnsSQL = args.columns.map(col => 
+      const columnsSQL = args.columns.map(col =>
         `${col.name} ${col.type}${col.constraints ? ' ' + col.constraints : ''}`
       ).join(', ');
       const previewSQL = `CREATE TABLE ${fullTableName} (${columnsSQL})`;
-      
+
       return {
         content: [
           {
             type: 'text',
             text: `🔍 **DRY RUN PREVIEW**\\n\\n` +
-                  `🔗 **Connection:** ${connection.type === 'direct' ? 'DIRECT DATABASE' : 'METABASE PROXY'}\\n` +
-                  `📂 **Target Schema:** ${args.schema || 'default'}\\n` +
-                  `📊 **Table Name:** ${tableName}\\n` +
-                  `📝 **Columns:** ${args.columns.length}\\n\\n` +
-                  `📜 **SQL to execute:**\\n\`\`\`sql\\n${previewSQL}\\n\`\`\`\\n\\n` +
-                  `✅ **To execute:** Set \`dry_run: false\` and \`approved: true\``,
+              `🔗 **Connection:** ${connection.type === 'direct' ? 'DIRECT DATABASE' : 'METABASE PROXY'}\\n` +
+              `📂 **Target Schema:** ${args.schema || 'default'}\\n` +
+              `📊 **Table Name:** ${tableName}\\n` +
+              `📝 **Columns:** ${args.columns.length}\\n\\n` +
+              `📜 **SQL to execute:**\\n\`\`\`sql\\n${previewSQL}\\n\`\`\`\\n\\n` +
+              `✅ **To execute:** Set \`dry_run: false\` and \`approved: true\``,
           },
         ],
       };
@@ -4688,10 +4755,10 @@ class MetabaseMCPServer {
 
     try {
       const result = await this.connectionManager.executeOperation(
-        connection, 
-        'createTable', 
-        args.table_name, 
-        args.columns, 
+        connection,
+        'createTable',
+        args.table_name,
+        args.columns,
         { approved: args.approved, schema: args.schema }
       );
 
@@ -4701,10 +4768,10 @@ class MetabaseMCPServer {
 
       // Log successful table creation
       if (this.activityLogger) {
-        const sql = `CREATE TABLE ${fullTableName} (${args.columns.map(col => 
+        const sql = `CREATE TABLE ${fullTableName} (${args.columns.map(col =>
           `${col.name} ${col.type}${col.constraints ? ' ' + col.constraints : ''}`
         ).join(', ')})`;
-        
+
         await this.activityLogger.logTableCreation(tableName, args.database_id, sql, executionTime);
       }
 
@@ -4713,16 +4780,16 @@ class MetabaseMCPServer {
           {
             type: 'text',
             text: `✅ **TABLE CREATED SUCCESSFULLY!**\\n\\n` +
-                  `📊 **Table Details:**\\n` +
-                  `• Name: \`${tableName}\`\\n` +
-                  `• Schema: \`${args.schema || 'default'}\`\\n` +
-                  `• Columns: ${args.columns.length}\\n` +
-                  `• Connection: ${connection.type === 'direct' ? '🔗 DIRECT DATABASE' : '🌐 METABASE PROXY'}\\n` +
-                  `• Execution Time: ${executionTime}ms\\n\\n` +
-                  `📝 **Column Details:**\\n${args.columns.map(col => 
-                    `• \`${col.name}\` (${col.type}${col.constraints ? ', ' + col.constraints : ''})`
-                  ).join('\\n')}\\n\\n` +
-                  `💡 **Next Steps:** Table is now available for queries and Metabase models!`,
+              `📊 **Table Details:**\\n` +
+              `• Name: \`${tableName}\`\\n` +
+              `• Schema: \`${args.schema || 'default'}\`\\n` +
+              `• Columns: ${args.columns.length}\\n` +
+              `• Connection: ${connection.type === 'direct' ? '🔗 DIRECT DATABASE' : '🌐 METABASE PROXY'}\\n` +
+              `• Execution Time: ${executionTime}ms\\n\\n` +
+              `📝 **Column Details:**\\n${args.columns.map(col =>
+                `• \`${col.name}\` (${col.type}${col.constraints ? ', ' + col.constraints : ''})`
+              ).join('\\n')}\\n\\n` +
+              `💡 **Next Steps:** Table is now available for queries and Metabase models!`,
           },
         ],
       };
@@ -4730,14 +4797,14 @@ class MetabaseMCPServer {
     } catch (err) {
       error = err;
       const executionTime = Date.now() - startTime;
-      
+
       // Log failed table creation
       if (this.activityLogger) {
         await this.activityLogger.logTableCreation(
-          args.table_name, 
-          args.database_id, 
-          `CREATE TABLE attempt failed`, 
-          executionTime, 
+          args.table_name,
+          args.database_id,
+          `CREATE TABLE attempt failed`,
+          executionTime,
           err
         );
       }
@@ -4747,17 +4814,17 @@ class MetabaseMCPServer {
           {
             type: 'text',
             text: `❌ **TABLE CREATION FAILED!**\\n\\n` +
-                  `🚫 **Error Details:**\\n` +
-                  `• Table: \`claude_ai_${args.table_name}\`\\n` +
-                  `• Schema: \`${args.schema || 'default'}\`\\n` +
-                  `• Database ID: ${args.database_id}\\n` +
-                  `• Execution Time: ${executionTime}ms\\n` +
-                  `• Error: ${err.message}\\n\\n` +
-                  `🔧 **Troubleshooting:**\\n` +
-                  `• Check if table name conflicts with existing tables\\n` +
-                  `• Verify column definitions are valid\\n` +
-                  `• Ensure you have CREATE permissions on the schema\\n` +
-                  `• Make sure \`approved: true\` is set`,
+              `🚫 **Error Details:**\\n` +
+              `• Table: \`claude_ai_${args.table_name}\`\\n` +
+              `• Schema: \`${args.schema || 'default'}\`\\n` +
+              `• Database ID: ${args.database_id}\\n` +
+              `• Execution Time: ${executionTime}ms\\n` +
+              `• Error: ${err.message}\\n\\n` +
+              `🔧 **Troubleshooting:**\\n` +
+              `• Check if table name conflicts with existing tables\\n` +
+              `• Verify column definitions are valid\\n` +
+              `• Ensure you have CREATE permissions on the schema\\n` +
+              `• Make sure \`approved: true\` is set`,
           },
         ],
       };
@@ -4766,43 +4833,43 @@ class MetabaseMCPServer {
 
   async handleCreateViewDirect(args) {
     const client = await this.getDirectClient(args.database_id);
-    
+
     // Schema seçimi kontrolü ve bilgilendirme
     if (!args.schema) {
       const schemas = await client.getSchemas();
       const currentSchema = await client.getCurrentSchema();
-      
+
       return {
         content: [
           {
             type: 'text',
             text: `⚠️  SCHEMA SELECTION REQUIRED\\n\\n` +
-                  `Connection Type: 🔗 DIRECT DATABASE (PostgreSQL)\\n` +
-                  `Current Schema: ${currentSchema}\\n\\n` +
-                  `Available Schemas:\\n${schemas.map(s => `  - ${s}`).join('\\n')}\\n\\n` +
-                  `Please specify a schema parameter and re-run:\\n` +
-                  `Example parameters:\\n{\\n  "schema": "${currentSchema || 'public'}",\\n  "database_id": ${args.database_id},\\n  "view_name": "${args.view_name}",\\n  "select_sql": "...",\\n  "dry_run": false,\\n  "approved": true\\n}`,
+              `Connection Type: 🔗 DIRECT DATABASE (PostgreSQL)\\n` +
+              `Current Schema: ${currentSchema}\\n\\n` +
+              `Available Schemas:\\n${schemas.map(s => `  - ${s}`).join('\\n')}\\n\\n` +
+              `Please specify a schema parameter and re-run:\\n` +
+              `Example parameters:\\n{\\n  "schema": "${currentSchema || 'public'}",\\n  "database_id": ${args.database_id},\\n  "view_name": "${args.view_name}",\\n  "select_sql": "...",\\n  "dry_run": false,\\n  "approved": true\\n}`,
           },
         ],
       };
     }
-    
+
     // Dry run kontrolü
     if (args.dry_run !== false) {
       const viewName = client.options.prefix + args.view_name;
       const schemaPrefix = args.schema ? `${args.schema}.` : '';
       const fullViewName = `${schemaPrefix}${viewName}`;
       const previewSQL = `CREATE VIEW ${fullViewName} AS ${args.select_sql}`;
-      
+
       return {
         content: [
           {
             type: 'text',
             text: `🔍 DRY RUN PREVIEW\\n\\n` +
-                  `Connection: 🔗 DIRECT DATABASE\\n` +
-                  `Target Schema: ${args.schema}\\n\\n` +
-                  `SQL to execute:\\n${previewSQL}\\n\\n` +
-                  `To execute, set: dry_run: false, approved: true`,
+              `Connection: 🔗 DIRECT DATABASE\\n` +
+              `Target Schema: ${args.schema}\\n\\n` +
+              `SQL to execute:\\n${previewSQL}\\n\\n` +
+              `To execute, set: dry_run: false, approved: true`,
           },
         ],
       };
@@ -4819,9 +4886,9 @@ class MetabaseMCPServer {
         {
           type: 'text',
           text: `✅ VIEW CREATED SUCCESSFULLY\\n\\n` +
-                `Name: ${client.options.prefix}${args.view_name}\\n` +
-                `Schema: ${args.schema}\\n` +
-                `Connection: 🔗 DIRECT DATABASE`,
+            `Name: ${client.options.prefix}${args.view_name}\\n` +
+            `Schema: ${args.schema}\\n` +
+            `Connection: 🔗 DIRECT DATABASE`,
         },
       ],
     };
@@ -4829,47 +4896,47 @@ class MetabaseMCPServer {
 
   async handleCreateMaterializedViewDirect(args) {
     const client = await this.getDirectClient(args.database_id);
-    
+
     if (client.engine !== 'postgres') {
       throw new Error('Materialized views are only supported in PostgreSQL');
     }
-    
+
     // Schema seçimi kontrolü ve bilgilendirme
     if (!args.schema) {
       const schemas = await client.getSchemas();
       const currentSchema = await client.getCurrentSchema();
-      
+
       return {
         content: [
           {
             type: 'text',
             text: `⚠️  SCHEMA SELECTION REQUIRED\\n\\n` +
-                  `Connection Type: 🔗 DIRECT DATABASE (PostgreSQL)\\n` +
-                  `Current Schema: ${currentSchema}\\n\\n` +
-                  `Available Schemas:\\n${schemas.map(s => `  - ${s}`).join('\\n')}\\n\\n` +
-                  `Please specify a schema parameter and re-run:\\n` +
-                  `Example parameters:\\n{\\n  "schema": "${currentSchema || 'public'}",\\n  "database_id": ${args.database_id},\\n  "view_name": "${args.view_name}",\\n  "select_sql": "...",\\n  "dry_run": false,\\n  "approved": true\\n}`,
+              `Connection Type: 🔗 DIRECT DATABASE (PostgreSQL)\\n` +
+              `Current Schema: ${currentSchema}\\n\\n` +
+              `Available Schemas:\\n${schemas.map(s => `  - ${s}`).join('\\n')}\\n\\n` +
+              `Please specify a schema parameter and re-run:\\n` +
+              `Example parameters:\\n{\\n  "schema": "${currentSchema || 'public'}",\\n  "database_id": ${args.database_id},\\n  "view_name": "${args.view_name}",\\n  "select_sql": "...",\\n  "dry_run": false,\\n  "approved": true\\n}`,
           },
         ],
       };
     }
-    
+
     // Dry run kontrolü
     if (args.dry_run !== false) {
       const viewName = client.options.prefix + args.view_name;
       const schemaPrefix = args.schema ? `${args.schema}.` : '';
       const fullViewName = `${schemaPrefix}${viewName}`;
       const previewSQL = `CREATE MATERIALIZED VIEW ${fullViewName} AS ${args.select_sql}`;
-      
+
       return {
         content: [
           {
             type: 'text',
             text: `🔍 DRY RUN PREVIEW\\n\\n` +
-                  `Connection: 🔗 DIRECT DATABASE\\n` +
-                  `Target Schema: ${args.schema}\\n\\n` +
-                  `SQL to execute:\\n${previewSQL}\\n\\n` +
-                  `To execute, set: dry_run: false, approved: true`,
+              `Connection: 🔗 DIRECT DATABASE\\n` +
+              `Target Schema: ${args.schema}\\n\\n` +
+              `SQL to execute:\\n${previewSQL}\\n\\n` +
+              `To execute, set: dry_run: false, approved: true`,
           },
         ],
       };
@@ -4886,9 +4953,9 @@ class MetabaseMCPServer {
         {
           type: 'text',
           text: `✅ MATERIALIZED VIEW CREATED SUCCESSFULLY\\n\\n` +
-                `Name: ${client.options.prefix}${args.view_name}\\n` +
-                `Schema: ${args.schema}\\n` +
-                `Connection: 🔗 DIRECT DATABASE`,
+            `Name: ${client.options.prefix}${args.view_name}\\n` +
+            `Schema: ${args.schema}\\n` +
+            `Connection: 🔗 DIRECT DATABASE`,
         },
       ],
     };
@@ -4896,23 +4963,23 @@ class MetabaseMCPServer {
 
   async handleCreateIndexDirect(args) {
     const client = await this.getDirectClient(args.database_id);
-    
+
     // Dry run kontrolü
     if (args.dry_run !== false) {
       const indexName = client.options.prefix + args.index_name;
       const unique = args.unique ? 'UNIQUE ' : '';
       const columnsStr = Array.isArray(args.columns) ? args.columns.join(', ') : args.columns;
       const previewSQL = `CREATE ${unique}INDEX ${indexName} ON ${args.table_name} (${columnsStr})`;
-      
+
       return {
         content: [
           {
             type: 'text',
             text: `🔍 DRY RUN PREVIEW\\n\\n` +
-                  `Connection: 🔗 DIRECT DATABASE\\n` +
-                  `Target Schema: ${args.schema}\\n\\n` +
-                  `SQL to execute:\\n${previewSQL}\\n\\n` +
-                  `To execute, set: dry_run: false, approved: true`,
+              `Connection: 🔗 DIRECT DATABASE\\n` +
+              `Target Schema: ${args.schema}\\n\\n` +
+              `SQL to execute:\\n${previewSQL}\\n\\n` +
+              `To execute, set: dry_run: false, approved: true`,
           },
         ],
       };
@@ -4967,7 +5034,7 @@ class MetabaseMCPServer {
     const objects = await client.listOwnObjects();
 
     let output = 'AI-Created Objects:\\n\\n';
-    
+
     if (objects.tables.length > 0) {
       output += 'Tables:\\n';
       objects.tables.forEach(table => {
@@ -4999,8 +5066,8 @@ class MetabaseMCPServer {
       });
     }
 
-    if (objects.tables.length === 0 && objects.views.length === 0 && 
-        objects.materialized_views.length === 0 && objects.indexes.length === 0) {
+    if (objects.tables.length === 0 && objects.views.length === 0 &&
+      objects.materialized_views.length === 0 && objects.indexes.length === 0) {
       output += 'No AI-created objects found.';
     }
 
@@ -5016,7 +5083,7 @@ class MetabaseMCPServer {
 
   async handleDropAIObject(args) {
     const client = await this.getDirectClient(args.database_id);
-    
+
     // Prefix kontrolü
     if (!args.object_name.startsWith('claude_ai_')) {
       throw new Error('Can only drop objects with claude_ai_ prefix');
@@ -5025,7 +5092,7 @@ class MetabaseMCPServer {
     // Dry run kontrolü
     if (args.dry_run !== false) {
       const dropSQL = `DROP ${args.object_type.toUpperCase().replace('_', ' ')} IF EXISTS ${args.object_name}`;
-      
+
       return {
         content: [
           {
@@ -5038,7 +5105,7 @@ class MetabaseMCPServer {
 
     const operationType = `DROP_${args.object_type.toUpperCase()}`;
     const dropSQL = `DROP ${args.object_type.toUpperCase().replace('_', ' ')} IF EXISTS ${args.object_name}`;
-    
+
     const result = await client.executeDDL(dropSQL, {
       approved: args.approved
     });
@@ -5070,20 +5137,20 @@ class MetabaseMCPServer {
     try {
       const startTime = Date.now();
       const result = await this.metabaseClient.executeNativeQuery(args.database_id, tableListSQL);
-      
+
       let output = `🔍 SCHEMA EXPLORATION (Simple): ${args.schema_name}\\n\\n`;
-      
+
       if (result.data && result.data.rows && result.data.rows.length > 0) {
         const endTime = Date.now();
         const responseTime = endTime - startTime;
-        
+
         output += `Found ${result.data.rows.length} tables (${responseTime}ms):\\n\\n`;
-        
+
         result.data.rows.forEach((row, index) => {
           const [tableName, tableType, columnCount] = row;
           output += `${index + 1}. 📊 **${tableName}** (${columnCount} columns)\\n`;
         });
-        
+
         output += `\\n💡 **Next Steps:**\\n`;
         output += `- Use 'execute_sql' for detailed column info\\n`;
         output += `- Try 'db_schema_analyze' for advanced analysis\\n`;
@@ -5116,53 +5183,53 @@ class MetabaseMCPServer {
     const startTime = Date.now();
     const limit = args.limit || 10;
     const timeoutMs = (args.timeout_seconds || 30) * 1000;
-    
+
     try {
       const client = await this.getDirectClient(args.database_id);
-      
+
       // Timeout Promise
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => reject(new Error(`Operation timeout after ${args.timeout_seconds || 30} seconds`)), timeoutMs);
       });
-      
+
       // Main operation Promise
       const operationPromise = client.exploreSchemaTablesDetailed(
-        args.schema_name, 
+        args.schema_name,
         args.include_columns !== false,
         limit
       );
-      
+
       // Race between operation and timeout
       const tables = await Promise.race([operationPromise, timeoutPromise]);
 
       const endTime = Date.now();
       const responseTime = endTime - startTime;
-      
+
       let output = `🔍 SCHEMA EXPLORATION (Advanced): ${args.schema_name}\\n\\n`;
       output += `⚡ Completed in ${responseTime}ms\\n`;
       output += `Found ${tables.length} tables (limited to ${limit}):\\n\\n`;
 
-    tables.forEach(table => {
-      output += `📊 **${table.name}** (${table.type})\\n`;
-      if (table.comment) output += `   Description: ${table.comment}\\n`;
-      if (table.size) output += `   Size: ${table.size}\\n`;
-      
-      if (args.include_columns !== false && table.columns.length > 0) {
-        output += `   Columns (${table.columns.length}):`;
-        table.columns.forEach(col => {
-          const indicators = [];
-          if (col.isPrimaryKey) indicators.push('🔑 PK');
-          if (col.isForeignKey) indicators.push(`🔗 FK→${col.foreignTable}.${col.foreignColumn}`);
-          if (!col.nullable) indicators.push('⚠️ NOT NULL');
-          
-          output += `\\n     - ${col.name}: ${col.type}`;
-          if (indicators.length > 0) output += ` ${indicators.join(' ')}`;
-          if (col.comment) output += ` // ${col.comment}`;
-        });
+      tables.forEach(table => {
+        output += `📊 **${table.name}** (${table.type})\\n`;
+        if (table.comment) output += `   Description: ${table.comment}\\n`;
+        if (table.size) output += `   Size: ${table.size}\\n`;
+
+        if (args.include_columns !== false && table.columns.length > 0) {
+          output += `   Columns (${table.columns.length}):`;
+          table.columns.forEach(col => {
+            const indicators = [];
+            if (col.isPrimaryKey) indicators.push('🔑 PK');
+            if (col.isForeignKey) indicators.push(`🔗 FK→${col.foreignTable}.${col.foreignColumn}`);
+            if (!col.nullable) indicators.push('⚠️ NOT NULL');
+
+            output += `\\n     - ${col.name}: ${col.type}`;
+            if (indicators.length > 0) output += ` ${indicators.join(' ')}`;
+            if (col.comment) output += ` // ${col.comment}`;
+          });
+          output += `\\n`;
+        }
         output += `\\n`;
-      }
-      output += `\\n`;
-    });
+      });
 
       return {
         content: [
@@ -5178,11 +5245,11 @@ class MetabaseMCPServer {
           {
             type: 'text',
             text: `❌ ADVANCED EXPLORATION FAILED\\n\\n` +
-                  `Error: ${error.message}\\n\\n` +
-                  `💡 Try 'db_schema_explore' instead or:\\n` +
-                  `- Increase timeout_seconds\\n` +
-                  `- Reduce limit parameter\\n` +
-                  `- Check if direct database connection is available`,
+              `Error: ${error.message}\\n\\n` +
+              `💡 Try 'db_schema_explore' instead or:\\n` +
+              `- Increase timeout_seconds\\n` +
+              `- Reduce limit parameter\\n` +
+              `- Check if direct database connection is available`,
           },
         ],
       };
@@ -5192,18 +5259,18 @@ class MetabaseMCPServer {
   async handleAnalyzeTableRelationships(args) {
     const client = await this.getDirectClient(args.database_id);
     const relationships = await client.analyzeTableRelationships(
-      args.schema_name, 
+      args.schema_name,
       args.table_names
     );
 
     let output = `🔗 RELATIONSHIP ANALYSIS: ${args.schema_name}\\n\\n`;
-    
+
     if (relationships.length === 0) {
       output += `No foreign key relationships found.\\n\\n`;
       output += `💡 Try 'suggest_virtual_relationships' to find potential relationships based on naming conventions.`;
     } else {
       output += `Found ${relationships.length} explicit foreign key relationships:\\n\\n`;
-      
+
       relationships.forEach((rel, index) => {
         output += `${index + 1}. **${rel.sourceTable}.${rel.sourceColumn}** → **${rel.targetTable}.${rel.targetColumn}**\\n`;
         output += `   Type: ${rel.relationshipType}\\n`;
@@ -5225,19 +5292,19 @@ class MetabaseMCPServer {
   async handleSuggestVirtualRelationships(args) {
     const client = await this.getDirectClient(args.database_id);
     const suggestions = await client.suggestVirtualRelationships(
-      args.schema_name, 
+      args.schema_name,
       args.confidence_threshold || 0.7
     );
 
     let output = `🤖 VIRTUAL RELATIONSHIP SUGGESTIONS: ${args.schema_name}\\n\\n`;
     output += `Confidence threshold: ${args.confidence_threshold || 0.7}\\n\\n`;
-    
+
     if (suggestions.length === 0) {
       output += `No high-confidence relationship suggestions found.\\n`;
       output += `Try lowering the confidence_threshold parameter.`;
     } else {
       output += `Found ${suggestions.length} potential relationships:\\n\\n`;
-      
+
       suggestions.forEach((suggestion, index) => {
         const confidenceBar = '█'.repeat(Math.round(suggestion.confidence * 10));
         output += `${index + 1}. **${suggestion.sourceTable}.${suggestion.sourceColumn}** → **${suggestion.targetTable}.${suggestion.targetColumn}**\\n`;
@@ -5245,7 +5312,7 @@ class MetabaseMCPServer {
         output += `   Type: ${suggestion.relationshipType}\\n`;
         output += `   Reasoning: ${suggestion.reasoning}\\n\\n`;
       });
-      
+
       output += `\\n📋 **Next Steps:**\\n`;
       output += `1. Review suggestions above\\n`;
       output += `2. Use 'create_relationship_mapping' with confirmed relationships\\n`;
@@ -5269,13 +5336,13 @@ class MetabaseMCPServer {
           {
             type: 'text',
             text: `⚠️  RELATIONSHIP MAPPING CONFIRMATION REQUIRED\\n\\n` +
-                  `You are about to create ${args.relationships.length} virtual relationships in Metabase.\\n\\n` +
-                  `Relationships to create:\\n` +
-                  args.relationships.map((rel, i) => 
-                    `${i + 1}. ${rel.source_table}.${rel.source_column} → ${rel.target_table}.${rel.target_column} (${rel.relationship_type})`
-                  ).join('\\n') +
-                  `\\n\\n⚠️  **Important:** These relationships will affect Metabase models and dashboards.\\n\\n` +
-                  `To proceed, set: "confirmed": true`,
+              `You are about to create ${args.relationships.length} virtual relationships in Metabase.\\n\\n` +
+              `Relationships to create:\\n` +
+              args.relationships.map((rel, i) =>
+                `${i + 1}. ${rel.source_table}.${rel.source_column} → ${rel.target_table}.${rel.target_column} (${rel.relationship_type})`
+              ).join('\\n') +
+              `\\n\\n⚠️  **Important:** These relationships will affect Metabase models and dashboards.\\n\\n` +
+              `To proceed, set: "confirmed": true`,
           },
         ],
       };
@@ -5312,7 +5379,7 @@ class MetabaseMCPServer {
         logger.info('Creating relationship:', relationshipData);
         successCount++;
         results.push(`✅ ${rel.source_table}.${rel.source_column} → ${rel.target_table}.${rel.target_column}`);
-        
+
       } catch (error) {
         errors.push(`Failed to create ${rel.source_table}.${rel.source_column} → ${rel.target_table}.${rel.target_column}: ${error.message}`);
       }
@@ -5320,17 +5387,17 @@ class MetabaseMCPServer {
 
     let output = `🔗 RELATIONSHIP MAPPING RESULTS\\n\\n`;
     output += `✅ Successfully created: ${successCount}/${args.relationships.length} relationships\\n\\n`;
-    
+
     if (results.length > 0) {
       output += `**Created Relationships:**\\n`;
       output += results.join('\\n') + '\\n\\n';
     }
-    
+
     if (errors.length > 0) {
       output += `**Errors:**\\n`;
       output += errors.map(e => `❌ ${e}`).join('\\n') + '\\n\\n';
     }
-    
+
     output += `🎯 **Next Steps:**\\n`;
     output += `1. Refresh Metabase model metadata\\n`;
     output += `2. Check model relationships in Metabase admin\\n`;
@@ -5347,23 +5414,23 @@ class MetabaseMCPServer {
   }
 
   // === DEFINITION TABLES & PARAMETRIC QUESTIONS HANDLERS ===
-  
+
   async handleDefinitionTablesInit(args) {
     try {
       await this.ensureInitialized();
-      
+
       // Import definition tables utility
       const { DefinitionTables } = await import('../utils/definition-tables.js');
       const definitionTables = new DefinitionTables(this.metabaseClient);
-      
+
       const result = await definitionTables.initializeDefinitionTables(args.database_id);
-      
+
       const output = `✅ Definition Tables Initialized\n\n` +
-                    `📊 Tables Created:\n` +
-                    result.tables.map(table => `   • ${table}`).join('\n') + `\n\n` +
-                    `🎯 Status: ${result.message}\n` +
-                    `🗄️ Database ID: ${args.database_id}`;
-      
+        `📊 Tables Created:\n` +
+        result.tables.map(table => `   • ${table}`).join('\n') + `\n\n` +
+        `🎯 Status: ${result.message}\n` +
+        `🗄️ Database ID: ${args.database_id}`;
+
       return {
         content: [{ type: 'text', text: output }],
       };
@@ -5377,23 +5444,23 @@ class MetabaseMCPServer {
   async handleDefinitionSearchTerms(args) {
     try {
       await this.ensureInitialized();
-      
+
       const { DefinitionTables } = await import('../utils/definition-tables.js');
       const definitionTables = new DefinitionTables(this.metabaseClient);
-      
+
       const terms = await definitionTables.searchBusinessTerms(
-        args.database_id, 
-        args.search_term, 
+        args.database_id,
+        args.search_term,
         args.category
       );
-      
+
       let output = `🔍 Business Terms Search: "${args.search_term}"\n\n`;
-      
+
       if (terms.length === 0) {
         output += `❌ No terms found matching "${args.search_term}"`;
       } else {
         output += `📊 Found ${terms.length} matching terms:\n\n`;
-        
+
         terms.forEach((term, index) => {
           output += `${index + 1}. **${term.term}**\n`;
           output += `   📝 Definition: ${term.definition}\n`;
@@ -5407,7 +5474,7 @@ class MetabaseMCPServer {
           output += `   📈 Relevance: ${(term.relevance * 100).toFixed(1)}%\n\n`;
         });
       }
-      
+
       return {
         content: [{ type: 'text', text: output }],
       };
@@ -5421,27 +5488,27 @@ class MetabaseMCPServer {
   async handleDefinitionGetMetric(args) {
     try {
       await this.ensureInitialized();
-      
+
       const { DefinitionTables } = await import('../utils/definition-tables.js');
       const definitionTables = new DefinitionTables(this.metabaseClient);
-      
+
       const metric = await definitionTables.getMetricDefinition(args.database_id, args.metric_name);
-      
+
       if (!metric) {
         return {
           content: [{ type: 'text', text: `❌ Metric "${args.metric_name}" not found in definition tables` }],
         };
       }
-      
+
       const output = `📊 Metric Definition: **${metric.display_name}**\n\n` +
-                    `🏷️ Internal Name: ${metric.metric_name}\n` +
-                    `📝 Description: ${metric.description}\n` +
-                    `🧮 Calculation Formula: \`${metric.calculation_formula}\`\n` +
-                    `📈 Aggregation Type: ${metric.aggregation_type}\n` +
-                    `📏 Unit of Measure: ${metric.unit_of_measure}\n` +
-                    `🏢 KPI Category: ${metric.kpi_category}\n` +
-                    (metric.business_context ? `💼 Business Context: ${metric.business_context}\n` : '');
-      
+        `🏷️ Internal Name: ${metric.metric_name}\n` +
+        `📝 Description: ${metric.description}\n` +
+        `🧮 Calculation Formula: \`${metric.calculation_formula}\`\n` +
+        `📈 Aggregation Type: ${metric.aggregation_type}\n` +
+        `📏 Unit of Measure: ${metric.unit_of_measure}\n` +
+        `🏢 KPI Category: ${metric.kpi_category}\n` +
+        (metric.business_context ? `💼 Business Context: ${metric.business_context}\n` : '');
+
       return {
         content: [{ type: 'text', text: output }],
       };
@@ -5455,10 +5522,10 @@ class MetabaseMCPServer {
   async handleDefinitionGetTemplate(args) {
     try {
       await this.ensureInitialized();
-      
+
       const { DefinitionTables } = await import('../utils/definition-tables.js');
       const definitionTables = new DefinitionTables(this.metabaseClient);
-      
+
       let template;
       if (args.template_type === 'dashboard') {
         template = await definitionTables.getDashboardTemplate(args.database_id, args.template_name);
@@ -5467,16 +5534,16 @@ class MetabaseMCPServer {
       } else {
         throw new Error('Invalid template type. Must be "dashboard" or "question"');
       }
-      
+
       if (!template) {
         return {
           content: [{ type: 'text', text: `❌ ${args.template_type} template "${args.template_name}" not found` }],
         };
       }
-      
+
       let output = `📋 ${args.template_type.charAt(0).toUpperCase() + args.template_type.slice(1)} Template: **${template.template_name}**\n\n`;
       output += `📝 Description: ${template.description}\n`;
-      
+
       if (args.template_type === 'dashboard') {
         output += `🏷️ Type: ${template.template_type}\n`;
         if (template.required_metrics) {
@@ -5500,7 +5567,7 @@ class MetabaseMCPServer {
           output += `💼 Business Use Case: ${template.business_use_case}\n`;
         }
       }
-      
+
       return {
         content: [{ type: 'text', text: output }],
       };
@@ -5514,23 +5581,23 @@ class MetabaseMCPServer {
   async handleDefinitionGlobalSearch(args) {
     try {
       await this.ensureInitialized();
-      
+
       const { DefinitionTables } = await import('../utils/definition-tables.js');
       const definitionTables = new DefinitionTables(this.metabaseClient);
-      
+
       const results = await definitionTables.globalSearch(
-        args.database_id, 
-        args.search_term, 
+        args.database_id,
+        args.search_term,
         args.content_types
       );
-      
+
       let output = `🌐 Global Search: "${args.search_term}"\n\n`;
-      
+
       if (results.length === 0) {
         output += `❌ No results found across all definition tables`;
       } else {
         output += `📊 Found ${results.length} results:\n\n`;
-        
+
         const groupedResults = {};
         results.forEach(result => {
           if (!groupedResults[result.content_type]) {
@@ -5538,10 +5605,10 @@ class MetabaseMCPServer {
           }
           groupedResults[result.content_type].push(result);
         });
-        
+
         Object.entries(groupedResults).forEach(([type, typeResults]) => {
           output += `## ${type.replace('_', ' ').toUpperCase()}\n`;
-          
+
           typeResults.forEach((result, index) => {
             output += `${index + 1}. **${result.source_table}**\n`;
             output += `   📝 Content: ${result.content.substring(0, 200)}${result.content.length > 200 ? '...' : ''}\n`;
@@ -5553,7 +5620,7 @@ class MetabaseMCPServer {
           });
         });
       }
-      
+
       return {
         content: [{ type: 'text', text: output }],
       };
@@ -5567,13 +5634,13 @@ class MetabaseMCPServer {
   async handleParametricQuestionCreate(args) {
     try {
       await this.ensureInitialized();
-      
+
       const { ParametricQuestions } = await import('../utils/parametric-questions.js');
       const { DefinitionTables } = await import('../utils/definition-tables.js');
-      
+
       const definitionTables = new DefinitionTables(this.metabaseClient);
       const parametricQuestions = new ParametricQuestions(this.metabaseClient, definitionTables);
-      
+
       const result = await parametricQuestions.createParametricQuestion(args.database_id, {
         name: args.name,
         description: args.description,
@@ -5582,15 +5649,15 @@ class MetabaseMCPServer {
         question_type: args.question_type,
         collection_id: args.collection_id
       });
-      
+
       const output = `✅ Parametric Question Created: **${result.question.name}**\n\n` +
-                    `🆔 Question ID: ${result.question.id}\n` +
-                    `📝 Description: ${args.description}\n` +
-                    `⚙️ Parameters: ${result.parameters.join(', ')}\n` +
-                    `📊 Question Type: ${args.question_type || 'table'}\n` +
-                    `🗃️ SQL Template:\n\`\`\`sql\n${result.sql}\n\`\`\`\n` +
-                    `🔗 Collection ID: ${args.collection_id || 'Root'}`;
-      
+        `🆔 Question ID: ${result.question.id}\n` +
+        `📝 Description: ${args.description}\n` +
+        `⚙️ Parameters: ${result.parameters.join(', ')}\n` +
+        `📊 Question Type: ${args.question_type || 'table'}\n` +
+        `🗃️ SQL Template:\n\`\`\`sql\n${result.sql}\n\`\`\`\n` +
+        `🔗 Collection ID: ${args.collection_id || 'Root'}`;
+
       return {
         content: [{ type: 'text', text: output }],
       };
@@ -5604,13 +5671,13 @@ class MetabaseMCPServer {
   async handleParametricDashboardCreate(args) {
     try {
       await this.ensureInitialized();
-      
+
       const { ParametricQuestions } = await import('../utils/parametric-questions.js');
       const { DefinitionTables } = await import('../utils/definition-tables.js');
-      
+
       const definitionTables = new DefinitionTables(this.metabaseClient);
       const parametricQuestions = new ParametricQuestions(this.metabaseClient, definitionTables);
-      
+
       const result = await parametricQuestions.createDashboardWithParametricQuestions(args.database_id, {
         name: args.name,
         description: args.description,
@@ -5619,17 +5686,17 @@ class MetabaseMCPServer {
         layout: args.layout,
         collection_id: args.collection_id
       });
-      
+
       const output = `✅ Parametric Dashboard Created: **${result.dashboard.name}**\n\n` +
-                    `🆔 Dashboard ID: ${result.dashboard.id}\n` +
-                    `📝 Description: ${args.description}\n` +
-                    `❓ Questions Created: ${result.questions.length}\n` +
-                    `🎛️ Dashboard Filters: ${result.filters.length}\n` +
-                    `📊 Cards Added: ${result.cards.length}\n` +
-                    `🔗 Collection ID: ${args.collection_id || 'Root'}\n\n` +
-                    `**Created Questions:**\n` +
-                    result.questions.map((q, i) => `${i + 1}. ${q.question.name} (ID: ${q.question.id})`).join('\n');
-      
+        `🆔 Dashboard ID: ${result.dashboard.id}\n` +
+        `📝 Description: ${args.description}\n` +
+        `❓ Questions Created: ${result.questions.length}\n` +
+        `🎛️ Dashboard Filters: ${result.filters.length}\n` +
+        `📊 Cards Added: ${result.cards.length}\n` +
+        `🔗 Collection ID: ${args.collection_id || 'Root'}\n\n` +
+        `**Created Questions:**\n` +
+        result.questions.map((q, i) => `${i + 1}. ${q.question.name} (ID: ${q.question.id})`).join('\n');
+
       return {
         content: [{ type: 'text', text: output }],
       };
@@ -5643,16 +5710,16 @@ class MetabaseMCPServer {
   async handleParametricTemplatePreset(args) {
     try {
       await this.ensureInitialized();
-      
+
       const { ParametricQuestions } = await import('../utils/parametric-questions.js');
       const { DefinitionTables } = await import('../utils/definition-tables.js');
-      
+
       const definitionTables = new DefinitionTables(this.metabaseClient);
       const parametricQuestions = new ParametricQuestions(this.metabaseClient, definitionTables);
-      
+
       let result;
       const config = { ...args.config, collection_id: args.collection_id };
-      
+
       switch (args.preset_type) {
         case 'date_range_analysis':
           result = await parametricQuestions.createDateRangeAnalysisQuestion(args.database_id, config);
@@ -5669,21 +5736,21 @@ class MetabaseMCPServer {
         default:
           throw new Error(`Unknown preset type: ${args.preset_type}`);
       }
-      
+
       const presetNames = {
         'date_range_analysis': 'Date Range Analysis',
         'category_filter': 'Category Filter',
         'text_search': 'Text Search',
         'period_comparison': 'Period Comparison'
       };
-      
+
       const output = `✅ Preset Template Created: **${presetNames[args.preset_type]}**\n\n` +
-                    `🆔 Question ID: ${result.question.id}\n` +
-                    `📝 Name: ${result.question.name}\n` +
-                    `⚙️ Parameters: ${result.parameters.join(', ')}\n` +
-                    `🗃️ SQL Template:\n\`\`\`sql\n${result.sql}\n\`\`\`\n` +
-                    `🔗 Collection ID: ${args.collection_id || 'Root'}`;
-      
+        `🆔 Question ID: ${result.question.id}\n` +
+        `📝 Name: ${result.question.name}\n` +
+        `⚙️ Parameters: ${result.parameters.join(', ')}\n` +
+        `🗃️ SQL Template:\n\`\`\`sql\n${result.sql}\n\`\`\`\n` +
+        `🔗 Collection ID: ${args.collection_id || 'Root'}`;
+
       return {
         content: [{ type: 'text', text: output }],
       };
@@ -5730,11 +5797,11 @@ class MetabaseMCPServer {
           content: [{
             type: 'text',
             text: `🔍 **VACUUM/ANALYZE Preview (Dry Run)**\\n\\n` +
-                  `📋 **Command:** \`${command}\`\\n` +
-                  `🗃️ **Target:** ${tableRef || 'All tables in database'}\\n` +
-                  `⚙️ **Type:** ${vacuumType}\\n\\n` +
-                  `ℹ️ Set \`dry_run: false\` to execute this command.\\n\\n` +
-                  `⚠️ **Note:** VACUUM FULL requires exclusive lock and may take time on large tables.`
+              `📋 **Command:** \`${command}\`\\n` +
+              `🗃️ **Target:** ${tableRef || 'All tables in database'}\\n` +
+              `⚙️ **Type:** ${vacuumType}\\n\\n` +
+              `ℹ️ Set \`dry_run: false\` to execute this command.\\n\\n` +
+              `⚠️ **Note:** VACUUM FULL requires exclusive lock and may take time on large tables.`
           }]
         };
       }
@@ -5747,10 +5814,10 @@ class MetabaseMCPServer {
         content: [{
           type: 'text',
           text: `✅ **VACUUM/ANALYZE Completed!**\\n\\n` +
-                `📋 **Command:** \`${command}\`\\n` +
-                `🗃️ **Target:** ${tableRef || 'All tables'}\\n` +
-                `⏱️ **Execution Time:** ${executionTime}ms\\n\\n` +
-                `💡 Table statistics have been updated for better query planning.`
+            `📋 **Command:** \`${command}\`\\n` +
+            `🗃️ **Target:** ${tableRef || 'All tables'}\\n` +
+            `⏱️ **Execution Time:** ${executionTime}ms\\n\\n` +
+            `💡 Table statistics have been updated for better query planning.`
         }]
       };
 
@@ -5801,9 +5868,9 @@ class MetabaseMCPServer {
         content: [{
           type: 'text',
           text: `📊 **Query Execution Plan**\\n\\n` +
-                `⚙️ **Options:** ${analyze ? 'ANALYZE' : 'ESTIMATE'}, ${format.toUpperCase()}${verbose ? ', VERBOSE' : ''}\\n\\n` +
-                `\`\`\`\\n${planOutput}\\n\`\`\`\\n\\n` +
-                (insights.length > 0 ? `💡 **Insights:**\\n${insights.join('\\n')}` : '')
+            `⚙️ **Options:** ${analyze ? 'ANALYZE' : 'ESTIMATE'}, ${format.toUpperCase()}${verbose ? ', VERBOSE' : ''}\\n\\n` +
+            `\`\`\`\\n${planOutput}\\n\`\`\`\\n\\n` +
+            (insights.length > 0 ? `💡 **Insights:**\\n${insights.join('\\n')}` : '')
         }]
       };
 
@@ -5853,8 +5920,8 @@ class MetabaseMCPServer {
       }
 
       const [schema, table, liveRows, deadRows, deadRatio, totalSize, tableSize, indexesSize,
-             lastVacuum, lastAutoVacuum, lastAnalyze, lastAutoAnalyze,
-             vacuumCount, autoVacuumCount, analyzeCount, autoAnalyzeCount] = rows[0];
+        lastVacuum, lastAutoVacuum, lastAnalyze, lastAutoAnalyze,
+        vacuumCount, autoVacuumCount, analyzeCount, autoAnalyzeCount] = rows[0];
 
       let recommendations = [];
       if (parseFloat(deadRatio) > 10) {
@@ -5871,20 +5938,20 @@ class MetabaseMCPServer {
         content: [{
           type: 'text',
           text: `📊 **Table Statistics: ${schema}.${table}**\\n\\n` +
-                `📈 **Row Counts:**\\n` +
-                `• Live Rows: ${liveRows?.toLocaleString() || 0}\\n` +
-                `• Dead Rows: ${deadRows?.toLocaleString() || 0}\\n` +
-                `• Dead Ratio: ${deadRatio || 0}%\\n\\n` +
-                `💾 **Size:**\\n` +
-                `• Total Size: ${totalSize}\\n` +
-                `• Table Size: ${tableSize}\\n` +
-                `• Indexes Size: ${indexesSize}\\n\\n` +
-                `🔧 **Maintenance:**\\n` +
-                `• Last Vacuum: ${lastVacuum || lastAutoVacuum || 'Never'}\\n` +
-                `• Last Analyze: ${lastAnalyze || lastAutoAnalyze || 'Never'}\\n` +
-                `• Vacuum Count: ${vacuumCount + autoVacuumCount}\\n` +
-                `• Analyze Count: ${analyzeCount + autoAnalyzeCount}\\n\\n` +
-                (recommendations.length > 0 ? `💡 **Recommendations:**\\n${recommendations.join('\\n')}` : '✅ Table is well maintained')
+            `📈 **Row Counts:**\\n` +
+            `• Live Rows: ${liveRows?.toLocaleString() || 0}\\n` +
+            `• Dead Rows: ${deadRows?.toLocaleString() || 0}\\n` +
+            `• Dead Ratio: ${deadRatio || 0}%\\n\\n` +
+            `💾 **Size:**\\n` +
+            `• Total Size: ${totalSize}\\n` +
+            `• Table Size: ${tableSize}\\n` +
+            `• Indexes Size: ${indexesSize}\\n\\n` +
+            `🔧 **Maintenance:**\\n` +
+            `• Last Vacuum: ${lastVacuum || lastAutoVacuum || 'Never'}\\n` +
+            `• Last Analyze: ${lastAnalyze || lastAutoAnalyze || 'Never'}\\n` +
+            `• Vacuum Count: ${vacuumCount + autoVacuumCount}\\n` +
+            `• Analyze Count: ${analyzeCount + autoAnalyzeCount}\\n\\n` +
+            (recommendations.length > 0 ? `💡 **Recommendations:**\\n${recommendations.join('\\n')}` : '✅ Table is well maintained')
         }]
       };
 
@@ -5996,9 +6063,9 @@ class MetabaseMCPServer {
           content: [{
             type: 'text',
             text: `✅ **Visualization Updated!**\\n\\n` +
-                  `🆔 Question ID: ${questionId}\\n` +
-                  `📊 Display Type: ${updated.display || args.display}\\n` +
-                  `⚙️ Settings Applied: ${Object.keys(args.settings || {}).length} properties`
+              `🆔 Question ID: ${questionId}\\n` +
+              `📊 Display Type: ${updated.display || args.display}\\n` +
+              `⚙️ Settings Applied: ${Object.keys(args.settings || {}).length} properties`
           }]
         };
       }
@@ -6008,9 +6075,9 @@ class MetabaseMCPServer {
         content: [{
           type: 'text',
           text: `📊 **Visualization Settings: ${question.name}**\\n\\n` +
-                `🆔 Question ID: ${questionId}\\n` +
-                `📈 Display Type: ${question.display}\\n\\n` +
-                `⚙️ **Current Settings:**\\n\`\`\`json\\n${JSON.stringify(question.visualization_settings || {}, null, 2)}\\n\`\`\``
+            `🆔 Question ID: ${questionId}\\n` +
+            `📈 Display Type: ${question.display}\\n\\n` +
+            `⚙️ **Current Settings:**\\n\`\`\`json\\n${JSON.stringify(question.visualization_settings || {}, null, 2)}\\n\`\`\``
         }]
       };
 
@@ -6129,11 +6196,11 @@ class MetabaseMCPServer {
         content: [{
           type: 'text',
           text: `✅ **Collection Created!**\\n\\n` +
-                `🆔 Collection ID: ${collection.id}\\n` +
-                `📁 Name: ${collection.name}\\n` +
-                `📝 Description: ${collection.description || 'None'}\\n` +
-                `🎨 Color: ${collection.color}\\n` +
-                `📂 Parent: ${args.parent_id || 'Root'}`
+            `🆔 Collection ID: ${collection.id}\\n` +
+            `📁 Name: ${collection.name}\\n` +
+            `📝 Description: ${collection.description || 'None'}\\n` +
+            `🎨 Color: ${collection.color}\\n` +
+            `📂 Parent: ${args.parent_id || 'Root'}`
         }]
       };
 
@@ -6205,9 +6272,9 @@ class MetabaseMCPServer {
         content: [{
           type: 'text',
           text: `✅ **Item Moved!**\\n\\n` +
-                `📦 Type: ${args.item_type}\\n` +
-                `🆔 Item ID: ${args.item_id}\\n` +
-                `📂 Target Collection: ${args.target_collection_id || 'Root'}`
+            `📦 Type: ${args.item_type}\\n` +
+            `🆔 Item ID: ${args.item_id}\\n` +
+            `📂 Target Collection: ${args.target_collection_id || 'Root'}`
         }]
       };
 
@@ -6241,11 +6308,11 @@ class MetabaseMCPServer {
         content: [{
           type: 'text',
           text: `✅ **Action Created!**\\n\\n` +
-                `🆔 Action ID: ${action.id}\\n` +
-                `📋 Name: ${action.name}\\n` +
-                `⚙️ Type: ${action.type}\\n` +
-                `📊 Model ID: ${args.model_id}\\n` +
-                `🔧 Parameters: ${(args.parameters || []).length}`
+            `🆔 Action ID: ${action.id}\\n` +
+            `📋 Name: ${action.name}\\n` +
+            `⚙️ Type: ${action.type}\\n` +
+            `📊 Model ID: ${args.model_id}\\n` +
+            `🔧 Parameters: ${(args.parameters || []).length}`
         }]
       };
 
@@ -6296,9 +6363,9 @@ class MetabaseMCPServer {
         content: [{
           type: 'text',
           text: `✅ **Action Executed!**\\n\\n` +
-                `🆔 Action ID: ${args.action_id}\\n` +
-                `📋 Parameters: ${JSON.stringify(args.parameters)}\\n` +
-                `📊 Result: ${JSON.stringify(result)}`
+            `🆔 Action ID: ${args.action_id}\\n` +
+            `📋 Parameters: ${JSON.stringify(args.parameters)}\\n` +
+            `📊 Result: ${JSON.stringify(result)}`
         }]
       };
 
@@ -6334,10 +6401,10 @@ class MetabaseMCPServer {
         content: [{
           type: 'text',
           text: `✅ **Alert Created!**\\n\\n` +
-                `🆔 Alert ID: ${alert.id}\\n` +
-                `🔔 Card ID: ${args.card_id}\\n` +
-                `⚙️ Condition: ${args.alert_condition || 'rows'}\\n` +
-                `📧 Channels: ${(args.channels || []).length}`
+            `🆔 Alert ID: ${alert.id}\\n` +
+            `🔔 Card ID: ${args.card_id}\\n` +
+            `⚙️ Condition: ${args.alert_condition || 'rows'}\\n` +
+            `📧 Channels: ${(args.channels || []).length}`
         }]
       };
 
@@ -6400,10 +6467,10 @@ class MetabaseMCPServer {
         content: [{
           type: 'text',
           text: `✅ **Scheduled Report (Pulse) Created!**\\n\\n` +
-                `🆔 Pulse ID: ${pulse.id}\\n` +
-                `📋 Name: ${pulse.name}\\n` +
-                `📊 Cards: ${args.cards.length}\\n` +
-                `📧 Channels: ${args.channels.length}`
+            `🆔 Pulse ID: ${pulse.id}\\n` +
+            `📋 Name: ${pulse.name}\\n` +
+            `📊 Cards: ${args.cards.length}\\n` +
+            `📧 Channels: ${args.channels.length}`
         }]
       };
 
@@ -6440,10 +6507,10 @@ class MetabaseMCPServer {
           content: [{
             type: 'text',
             text: `✅ **Field Metadata Updated!**\\n\\n` +
-                  `🆔 Field ID: ${fieldId}\\n` +
-                  `📋 Display Name: ${updated.display_name}\\n` +
-                  `🏷️ Semantic Type: ${updated.semantic_type || 'None'}\\n` +
-                  `👁️ Visibility: ${updated.visibility_type}`
+              `🆔 Field ID: ${fieldId}\\n` +
+              `📋 Display Name: ${updated.display_name}\\n` +
+              `🏷️ Semantic Type: ${updated.semantic_type || 'None'}\\n` +
+              `👁️ Visibility: ${updated.visibility_type}`
           }]
         };
       }
@@ -6453,14 +6520,14 @@ class MetabaseMCPServer {
         content: [{
           type: 'text',
           text: `📋 **Field Metadata: ${field.display_name}**\\n\\n` +
-                `🆔 Field ID: ${fieldId}\\n` +
-                `📛 Name: ${field.name}\\n` +
-                `📋 Display Name: ${field.display_name}\\n` +
-                `📝 Description: ${field.description || 'None'}\\n` +
-                `🏷️ Semantic Type: ${field.semantic_type || 'None'}\\n` +
-                `📊 Base Type: ${field.base_type}\\n` +
-                `👁️ Visibility: ${field.visibility_type}\\n` +
-                `🔍 Has Field Values: ${field.has_field_values}`
+            `🆔 Field ID: ${fieldId}\\n` +
+            `📛 Name: ${field.name}\\n` +
+            `📋 Display Name: ${field.display_name}\\n` +
+            `📝 Description: ${field.description || 'None'}\\n` +
+            `🏷️ Semantic Type: ${field.semantic_type || 'None'}\\n` +
+            `📊 Base Type: ${field.base_type}\\n` +
+            `👁️ Visibility: ${field.visibility_type}\\n` +
+            `🔍 Has Field Values: ${field.has_field_values}`
         }]
       };
 
@@ -6493,9 +6560,9 @@ class MetabaseMCPServer {
           content: [{
             type: 'text',
             text: `✅ **Table Metadata Updated!**\\n\\n` +
-                  `🆔 Table ID: ${tableId}\\n` +
-                  `📋 Display Name: ${updated.display_name}\\n` +
-                  `👁️ Visibility: ${updated.visibility_type}`
+              `🆔 Table ID: ${tableId}\\n` +
+              `📋 Display Name: ${updated.display_name}\\n` +
+              `👁️ Visibility: ${updated.visibility_type}`
           }]
         };
       }
@@ -6505,13 +6572,13 @@ class MetabaseMCPServer {
         content: [{
           type: 'text',
           text: `📋 **Table Metadata: ${table.display_name}**\\n\\n` +
-                `🆔 Table ID: ${tableId}\\n` +
-                `📛 Name: ${table.name}\\n` +
-                `📋 Display Name: ${table.display_name}\\n` +
-                `📝 Description: ${table.description || 'None'}\\n` +
-                `👁️ Visibility: ${table.visibility_type}\\n` +
-                `🗃️ Schema: ${table.schema}\\n` +
-                `📊 Fields: ${table.fields?.length || 0}`
+            `🆔 Table ID: ${tableId}\\n` +
+            `📛 Name: ${table.name}\\n` +
+            `📋 Display Name: ${table.display_name}\\n` +
+            `📝 Description: ${table.description || 'None'}\\n` +
+            `👁️ Visibility: ${table.visibility_type}\\n` +
+            `🗃️ Schema: ${table.schema}\\n` +
+            `📊 Fields: ${table.fields?.length || 0}`
         }]
       };
 
@@ -6571,8 +6638,8 @@ class MetabaseMCPServer {
           content: [{
             type: 'text',
             text: `⚠️ **Embedding Secret Key Not Configured**\\n\\n` +
-                  `Please set METABASE_EMBEDDING_SECRET_KEY in your environment.\\n\\n` +
-                  `You can find this in Metabase Admin > Settings > Embedding.`
+              `Please set METABASE_EMBEDDING_SECRET_KEY in your environment.\\n\\n` +
+              `You can find this in Metabase Admin > Settings > Embedding.`
           }]
         };
       }
@@ -6612,11 +6679,11 @@ class MetabaseMCPServer {
         content: [{
           type: 'text',
           text: `✅ **Embed URL Generated!**\\n\\n` +
-                `📊 Resource: ${resourceType} (ID: ${resourceId})\\n` +
-                `⏱️ Expires: ${expMinutes} minutes\\n` +
-                `🔒 Parameters: ${Object.keys(params).length} locked\\n\\n` +
-                `🔗 **Embed URL:**\\n\`\`\`\\n${embedUrl}\\n\`\`\`\\n\\n` +
-                `📋 **HTML:**\\n\`\`\`html\\n<iframe src="${embedUrl}" width="100%" height="600" frameborder="0"></iframe>\\n\`\`\``
+            `📊 Resource: ${resourceType} (ID: ${resourceId})\\n` +
+            `⏱️ Expires: ${expMinutes} minutes\\n` +
+            `🔒 Parameters: ${Object.keys(params).length} locked\\n\\n` +
+            `🔗 **Embed URL:**\\n\`\`\`\\n${embedUrl}\\n\`\`\`\\n\\n` +
+            `📋 **HTML:**\\n\`\`\`html\\n<iframe src="${embedUrl}" width="100%" height="600" frameborder="0"></iframe>\\n\`\`\``
         }]
       };
 
@@ -6641,12 +6708,12 @@ class MetabaseMCPServer {
         content: [{
           type: 'text',
           text: `📊 **Embedding Settings**\\n\\n` +
-                `🔒 Embedding Enabled: ${embeddingEnabled ? 'Yes' : 'No'}\\n` +
-                `🔑 Secret Key Configured: ${embedSecretSet ? 'Yes' : 'No'}\\n\\n` +
-                `💡 **To Enable Embedding:**\\n` +
-                `1. Go to Metabase Admin > Settings > Embedding\\n` +
-                `2. Enable embedding and copy the secret key\\n` +
-                `3. Set METABASE_EMBEDDING_SECRET_KEY in your environment`
+            `🔒 Embedding Enabled: ${embeddingEnabled ? 'Yes' : 'No'}\\n` +
+            `🔑 Secret Key Configured: ${embedSecretSet ? 'Yes' : 'No'}\\n\\n` +
+            `💡 **To Enable Embedding:**\\n` +
+            `1. Go to Metabase Admin > Settings > Embedding\\n` +
+            `2. Enable embedding and copy the secret key\\n` +
+            `3. Set METABASE_EMBEDDING_SECRET_KEY in your environment`
         }]
       };
 
@@ -7601,20 +7668,20 @@ class MetabaseMCPServer {
       if (consoleTransport) {
         logger.remove(consoleTransport);
       }
-      
+
       const transport = new StdioServerTransport();
       await this.server.connect(transport);
-      
+
       // Don't initialize immediately - wait for first request
       // This allows the MCP connection to establish properly
-      
+
     } catch (error) {
       process.exit(1);
     }
   }
 
   // === ACTIVITY LOGGING HANDLERS ===
-  
+
   async handleInitializeActivityLog(args) {
     try {
       if (!this.activityLogger) {
@@ -7623,46 +7690,46 @@ class MetabaseMCPServer {
           schema: args.schema || 'public'
         });
       }
-      
+
       await this.activityLogger.initialize(args.database_id);
-      
+
       return {
         content: [
           {
             type: 'text',
             text: `✅ **Activity Logging Initialized!**\\n\\n` +
-                  `📊 **Configuration:**\\n` +
-                  `• Database ID: ${args.database_id}\\n` +
-                  `• Schema: ${args.schema || 'public'}\\n` +
-                  `• Log Table: \`claude_ai_activity_log\`\\n` +
-                  `• Session ID: \`${this.activityLogger.sessionId}\`\\n\\n` +
-                  `🎯 **What Gets Tracked:**\\n` +
-                  `• SQL query executions and performance\\n` +
-                  `• Table/View/Index creation operations\\n` +
-                  `• Metabase dashboard and question creation\\n` +
-                  `• Error patterns and debugging info\\n` +
-                  `• Execution times and resource usage\\n\\n` +
-                  `📈 **Available Analytics:**\\n` +
-                  `• Session summaries and insights\\n` +
-                  `• Database usage patterns\\n` +
-                  `• Performance optimization suggestions\\n` +
-                  `• Error analysis and troubleshooting\\n\\n` +
-                  `💡 **Next Steps:** All your operations are now being tracked for analytics!`,
+              `📊 **Configuration:**\\n` +
+              `• Database ID: ${args.database_id}\\n` +
+              `• Schema: ${args.schema || 'public'}\\n` +
+              `• Log Table: \`claude_ai_activity_log\`\\n` +
+              `• Session ID: \`${this.activityLogger.sessionId}\`\\n\\n` +
+              `🎯 **What Gets Tracked:**\\n` +
+              `• SQL query executions and performance\\n` +
+              `• Table/View/Index creation operations\\n` +
+              `• Metabase dashboard and question creation\\n` +
+              `• Error patterns and debugging info\\n` +
+              `• Execution times and resource usage\\n\\n` +
+              `📈 **Available Analytics:**\\n` +
+              `• Session summaries and insights\\n` +
+              `• Database usage patterns\\n` +
+              `• Performance optimization suggestions\\n` +
+              `• Error analysis and troubleshooting\\n\\n` +
+              `💡 **Next Steps:** All your operations are now being tracked for analytics!`,
           },
         ],
       };
-      
+
     } catch (error) {
       return {
         content: [
           {
             type: 'text',
             text: `❌ **Activity Logging Initialization Failed!**\\n\\n` +
-                  `🚫 **Error:** ${error.message}\\n\\n` +
-                  `🔧 **Troubleshooting:**\\n` +
-                  `• Ensure you have CREATE permissions on the schema\\n` +
-                  `• Verify database connection is working\\n` +
-                  `• Check that the database supports the required SQL features`,
+              `🚫 **Error:** ${error.message}\\n\\n` +
+              `🔧 **Troubleshooting:**\\n` +
+              `• Ensure you have CREATE permissions on the schema\\n` +
+              `• Verify database connection is working\\n` +
+              `• Check that the database supports the required SQL features`,
           },
         ],
       };
@@ -7683,7 +7750,7 @@ class MetabaseMCPServer {
 
     try {
       const summary = await this.activityLogger.getSessionSummary(args.session_id);
-      
+
       if (!summary) {
         return {
           content: [
@@ -7695,9 +7762,9 @@ class MetabaseMCPServer {
         };
       }
 
-      const [sessionId, sessionStart, sessionEnd, totalOps, successOps, failedOps, 
-             dbsUsed, opTypes, totalExecTime, avgExecTime, totalRowsReturned, 
-             totalRowsAffected, ddlOps, queryOps, metabaseOps] = summary;
+      const [sessionId, sessionStart, sessionEnd, totalOps, successOps, failedOps,
+        dbsUsed, opTypes, totalExecTime, avgExecTime, totalRowsReturned,
+        totalRowsAffected, ddlOps, queryOps, metabaseOps] = summary;
 
       const duration = new Date(sessionEnd) - new Date(sessionStart);
       const durationMin = Math.round(duration / 60000);
@@ -7708,26 +7775,26 @@ class MetabaseMCPServer {
           {
             type: 'text',
             text: `📊 **Session Summary**\\n\\n` +
-                  `🔢 **Session:** \`${sessionId}\`\\n` +
-                  `⏰ **Duration:** ${durationMin} minutes\\n` +
-                  `✅ **Success Rate:** ${successRate}% (${successOps}/${totalOps} operations)\\n\\n` +
-                  `📈 **Operations Breakdown:**\\n` +
-                  `• Total Operations: ${totalOps}\\n` +
-                  `• SQL Queries: ${queryOps}\\n` +
-                  `• DDL Operations: ${ddlOps}\\n` +
-                  `• Metabase Operations: ${metabaseOps}\\n` +
-                  `• Failed Operations: ${failedOps}\\n\\n` +
-                  `⚡ **Performance:**\\n` +
-                  `• Total Execution Time: ${totalExecTime}ms\\n` +
-                  `• Average Execution Time: ${Math.round(avgExecTime)}ms\\n` +
-                  `• Data Processed: ${totalRowsReturned} rows returned\\n\\n` +
-                  `🎯 **Scope:**\\n` +
-                  `• Databases Used: ${dbsUsed}\\n` +
-                  `• Operation Types: ${opTypes}`,
+              `🔢 **Session:** \`${sessionId}\`\\n` +
+              `⏰ **Duration:** ${durationMin} minutes\\n` +
+              `✅ **Success Rate:** ${successRate}% (${successOps}/${totalOps} operations)\\n\\n` +
+              `📈 **Operations Breakdown:**\\n` +
+              `• Total Operations: ${totalOps}\\n` +
+              `• SQL Queries: ${queryOps}\\n` +
+              `• DDL Operations: ${ddlOps}\\n` +
+              `• Metabase Operations: ${metabaseOps}\\n` +
+              `• Failed Operations: ${failedOps}\\n\\n` +
+              `⚡ **Performance:**\\n` +
+              `• Total Execution Time: ${totalExecTime}ms\\n` +
+              `• Average Execution Time: ${Math.round(avgExecTime)}ms\\n` +
+              `• Data Processed: ${totalRowsReturned} rows returned\\n\\n` +
+              `🎯 **Scope:**\\n` +
+              `• Databases Used: ${dbsUsed}\\n` +
+              `• Operation Types: ${opTypes}`,
           },
         ],
       };
-      
+
     } catch (error) {
       return {
         content: [
@@ -7754,7 +7821,7 @@ class MetabaseMCPServer {
 
     try {
       const stats = await this.activityLogger.getOperationStats(args.days || 7);
-      
+
       if (stats.length === 0) {
         return {
           content: [
@@ -7767,11 +7834,11 @@ class MetabaseMCPServer {
       }
 
       let output = `📊 **Operation Statistics** (Last ${args.days || 7} Days)\\n\\n`;
-      
+
       stats.slice(0, 10).forEach((stat, index) => {
         const [opType, opCategory, opCount, successCount, errorCount, avgTime] = stat;
         const successRate = ((successCount / opCount) * 100).toFixed(1);
-        
+
         output += `${index + 1}. **${opType}** (${opCategory})\\n`;
         output += `   • Executions: ${opCount} (${successRate}% success)\\n`;
         output += `   • Avg Time: ${Math.round(avgTime)}ms\\n\\n`;
@@ -7785,7 +7852,7 @@ class MetabaseMCPServer {
           },
         ],
       };
-      
+
     } catch (error) {
       return {
         content: [
@@ -7807,7 +7874,7 @@ class MetabaseMCPServer {
 
     try {
       const usage = await this.activityLogger.getDatabaseUsageStats(args.days || 30);
-      
+
       if (usage.length === 0) {
         return {
           content: [{ type: 'text', text: `📊 **No database usage data found** for the last ${args.days || 30} days.` }],
@@ -7815,14 +7882,14 @@ class MetabaseMCPServer {
       }
 
       let output = `🗃️ **Database Usage** (Last ${args.days || 30} Days)\\n\\n`;
-      
+
       usage.slice(0, 5).forEach((db, index) => {
         const [dbId, dbName, totalOps, uniqueSessions] = db;
         output += `${index + 1}. **${dbName || `DB ${dbId}`}**: ${totalOps} ops, ${uniqueSessions} sessions\\n`;
       });
 
       return { content: [{ type: 'text', text: output }] };
-      
+
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ **Failed to get database usage:** ${error.message}` }] };
     }
@@ -7835,13 +7902,13 @@ class MetabaseMCPServer {
 
     try {
       const errors = await this.activityLogger.getErrorAnalysis(args.days || 7);
-      
+
       if (errors.length === 0) {
         return { content: [{ type: 'text', text: `✅ **No errors found** in the last ${args.days || 7} days! 🎉` }] };
       }
 
       let output = `🚨 **Error Analysis** (Last ${args.days || 7} Days)\\n\\n`;
-      
+
       errors.slice(0, 5).forEach((error, index) => {
         const [opType, errorMsg, errorCount] = error;
         output += `${index + 1}. **${opType}**: ${errorCount} errors\\n`;
@@ -7849,7 +7916,7 @@ class MetabaseMCPServer {
       });
 
       return { content: [{ type: 'text', text: output }] };
-      
+
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ **Error analysis failed:** ${error.message}` }] };
     }
@@ -7862,16 +7929,16 @@ class MetabaseMCPServer {
 
     try {
       const insights = await this.activityLogger.getPerformanceInsights(args.days || 7);
-      
+
       if (insights.length === 0) {
         return { content: [{ type: 'text', text: `📊 **No performance data found.**` }] };
       }
 
       let output = `⚡ **Performance Insights** (Last ${args.days || 7} Days)\\n\\n`;
-      
+
       insights.slice(0, 5).forEach((insight, index) => {
         const [opType, execCount, , , avgTime, , p95Time, slowOps] = insight;
-        
+
         output += `${index + 1}. **${opType}**\\n`;
         output += `   • ${execCount} executions, avg ${Math.round(avgTime)}ms\\n`;
         output += `   • 95th percentile: ${Math.round(p95Time)}ms\\n`;
@@ -7879,7 +7946,7 @@ class MetabaseMCPServer {
       });
 
       return { content: [{ type: 'text', text: output }] };
-      
+
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ **Performance insights failed:** ${error.message}` }] };
     }
@@ -7892,13 +7959,13 @@ class MetabaseMCPServer {
 
     try {
       const timeline = await this.activityLogger.getActivityTimeline(args.days || 7, args.limit || 20);
-      
+
       if (timeline.length === 0) {
         return { content: [{ type: 'text', text: `📊 **No recent activity found.**` }] };
       }
 
       let output = `📅 **Recent Activity**\\n\\n`;
-      
+
       timeline.forEach((activity, index) => {
         const [timestamp, , opType, , , status] = activity;
         const statusIcon = status === 'success' ? '✅' : '❌';
@@ -7906,7 +7973,7 @@ class MetabaseMCPServer {
       });
 
       return { content: [{ type: 'text', text: output }] };
-      
+
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ **Timeline failed:** ${error.message}` }] };
     }
@@ -7920,25 +7987,25 @@ class MetabaseMCPServer {
     try {
       const retentionDays = args.retention_days || 90;
       const isDryRun = args.dry_run !== false;
-      
+
       if (isDryRun) {
         return {
-          content: [{ 
-            type: 'text', 
+          content: [{
+            type: 'text',
             text: `🔍 **Cleanup Preview**: Would delete logs older than ${retentionDays} days. Set \`dry_run: false\` to execute.`
           }],
         };
       }
-      
+
       const deletedCount = await this.activityLogger.cleanupOldLogs();
-      
+
       return {
-        content: [{ 
-          type: 'text', 
+        content: [{
+          type: 'text',
           text: `✅ **Cleanup completed!** Deleted ${deletedCount} old log entries.`
         }],
       };
-      
+
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ **Cleanup failed:** ${error.message}` }] };
     }
