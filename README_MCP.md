@@ -45,7 +45,7 @@ After updating the configuration file, restart your MCP client to load the new s
 
 ---
 
-## Available Tools (107 Total)
+## Available Tools (111 Total)
 
 ### Database Operations
 - **db_list**: List all databases in Metabase
@@ -55,6 +55,10 @@ After updating the configuration file, restart your MCP client to load the new s
 
 ### SQL Operations
 - **sql_execute**: Execute native SQL query
+- **sql_submit**: Asynchronously create a long-running SQL query job
+- **sql_status**: Check the status of a SQL job
+- **sql_cancel**: Cancel a running SQL job
+- **db_table_profile**: Profile a table (smart dim/ref detection)
 - **ai_sql_generate**: Generate SQL from natural language description
 - **ai_sql_optimize**: Optimize SQL query for performance
 - **ai_sql_explain**: Explain what a SQL query does
@@ -210,6 +214,32 @@ After updating the configuration file, restart your MCP client to load the new s
 {
   "database_id": 1,
   "sql": "SELECT * FROM table_name LIMIT 10"
+}
+```
+
+### sql_submit (Async Query)
+```json
+{
+  "database_id": 1,
+  "sql": "SELECT SLEEP(120)",
+  "timeout_seconds": 300
+}
+```
+
+### sql_status
+```json
+{
+  "job_id": "550e8400-e29b-41d4-a716-446655440000"
+}
+```
+
+### db_table_profile
+```json
+{
+  "database_id": 1,
+  "schema": "public",
+  "table": "dim_customers",
+  "sample_rows": 3
 }
 ```
 
