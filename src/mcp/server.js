@@ -24,6 +24,7 @@ import {
   isReadOnlyMode,
   detectWriteOperation,
 } from './handlers/index.js';
+import { MetadataHandler } from './handlers/metadata.js';
 
 // Utils
 import { CacheManager, CacheKeys, globalCache } from '../utils/cache.js';
@@ -98,6 +99,9 @@ class MetabaseMCPServer {
         password: process.env.METABASE_PASSWORD,
         apiKey: process.env.METABASE_API_KEY,
       });
+
+      // Initialize Metadata Handler
+      this.metadataHandler = new MetadataHandler(this.metabaseClient);
 
       await this.metabaseClient.authenticate();
       logger.info('Metabase client initialized');
@@ -638,10 +642,78 @@ class MetabaseMCPServer {
                   description: 'Maximum number of relevant pages to return',
                   default: 5,
                   minimum: 1,
-                  maximum: 20
+                  maximum: 3
                 }
               },
               required: ['query'],
+            },
+          },
+          // === ADVANCED METADATA TOOLS (Internal DB) ===
+          {
+            name: 'meta_find_internal_db',
+            description: 'Auto-detect the Metabase Internal Application Database ID from connected databases. Required for advanced metadata tools.',
+            inputSchema: {
+              type: 'object',
+              properties: {},
+            },
+          },
+          {
+            name: 'meta_audit_logs',
+            description: 'Analyze query performance and usage history from internal logs. Finds slow queries and top users.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                days: {
+                  type: 'number',
+                  description: 'Number of days to analyze (default: 30)',
+                  default: 30
+                },
+                limit: {
+                  type: 'number',
+                  description: 'Max results to return (default: 50)',
+                  default: 50
+                },
+                internal_db_id: {
+                  type: 'number',
+                  description: 'Internal Database ID (optional if configured in env)'
+                }
+              },
+            },
+          },
+          {
+            name: 'meta_lineage',
+            description: 'Find dependencies: Which dashboards and questions use a specific table or field? (Impact Analysis)',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                search_term: {
+                  type: 'string',
+                  description: 'Table name, field name, or SQL fragment to search for usage'
+                },
+                internal_db_id: {
+                  type: 'number',
+                  description: 'Internal Database ID (optional if configured in env)'
+                }
+              },
+              required: ['search_term']
+            },
+          },
+          {
+            name: 'meta_advanced_search',
+            description: 'Deep search within SQL code, visualization settings, and descriptions across all questions and dashboards.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                query: {
+                  type: 'string',
+                  description: 'Search query (searches SQL, names, descriptions)'
+                },
+                internal_db_id: {
+                  type: 'number',
+                  description: 'Internal Database ID (optional if configured in env)'
+                }
+              },
+              required: ['query']
             },
           },
           {
@@ -3539,6 +3611,16 @@ class MetabaseMCPServer {
             return await this.handleMetadataCompareEnvironments(args);
           case 'mb_meta_auto_cleanup':
             return await this.handleMetadataAutoCleanup(args);
+
+          // Advanced Metadata (Internal DB)
+          case 'meta_find_internal_db':
+            return await this.metadataHandler.handleFindInternalDb(args);
+          case 'meta_audit_logs':
+            return await this.metadataHandler.handleAuditLogs(args);
+          case 'meta_lineage':
+            return await this.metadataHandler.handleLineage(args);
+          case 'meta_advanced_search':
+            return await this.metadataHandler.handleAdvancedSearch(args);
 
           default:
             throw new McpError(

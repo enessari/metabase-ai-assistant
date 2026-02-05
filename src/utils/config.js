@@ -26,6 +26,9 @@ const envSchema = z.object({
         .default('true')
         .transform(val => val.toLowerCase() === 'true'),
 
+    // Internal Database ID (for advanced metadata features)
+    METABASE_INTERNAL_DB_ID: z.string().optional().transform(val => val ? parseInt(val, 10) : undefined),
+
     // Database Configuration
     DATABASE_TYPE: z.enum(['postgres', 'mysql', 'sqlite']).default('postgres'),
     DATABASE_HOST: z.string().optional(),
