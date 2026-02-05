@@ -1,6 +1,6 @@
 {
   "name": "metabase-ai-assistant",
-  "version": "3.4.2",
+  "version": "3.4.3",
   "mcpName": "io.github.enessari/metabase-ai-assistant",
   "description": "The most powerful MCP Server for Metabase - 111+ tools for AI-powered SQL generation, dashboard automation, user management & enterprise BI. Works with Claude, Cursor, and any MCP-compatible AI.",
   "main": "src/index.js",
