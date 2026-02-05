@@ -3943,7 +3943,13 @@ class MetabaseMCPServer {
       output += `⏱️ Elapsed: ${elapsedSeconds} seconds\\n`;
 
       if (job.status === 'running' || job.status === 'pending') {
-        output += `\\n💡 Query is still running. Check again later or use \`sql_cancel\` to stop.`;
+        let waitSeconds = 3;
+        if (elapsedSeconds > 60) waitSeconds = 30;
+        else if (elapsedSeconds > 30) waitSeconds = 10;
+        else if (elapsedSeconds > 10) waitSeconds = 5;
+
+        output += `\\n💡 Query is still running. Please wait **${waitSeconds} seconds** before checking again.\\n`;
+        output += `(Use \`sql_cancel\` to stop if needed)`;
       } else if (job.status === 'complete') {
         const rows = job.result?.data?.rows || [];
         const columns = job.result?.data?.cols || [];
