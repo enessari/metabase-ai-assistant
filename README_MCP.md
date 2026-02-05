@@ -180,6 +180,9 @@ After updating the configuration file, restart your MCP client to load the new s
 ## Features Summary
 
 ### Currently Available
+- **Async Query Management** (for long-running queries)
+- **Smart Response Optimization** (no truncation for DDL/definitions)
+- **Table Profiling** (dim/ref table detection)
 - Metabase API integration
 - SQL query execution
 - Question/Dashboard creation
@@ -213,7 +216,8 @@ After updating the configuration file, restart your MCP client to load the new s
 ```json
 {
   "database_id": 1,
-  "sql": "SELECT * FROM table_name LIMIT 10"
+  "sql": "SELECT * FROM table_name LIMIT 10",
+  "full_results": false // Optional: Set true to disable truncation (useful for DDL)
 }
 ```
 
