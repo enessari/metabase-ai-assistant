@@ -258,6 +258,10 @@ class MetabaseMCPServer {
                   type: 'string',
                   description: 'SQL query to execute',
                 },
+                full_results: {
+                  type: 'boolean',
+                  description: 'Set to true to disable result truncation (useful for DDL/definitions)',
+                },
               },
               required: ['database_id', 'sql'],
             },
@@ -3237,7 +3241,7 @@ class MetabaseMCPServer {
 
           // SQL execution
           case 'sql_execute':
-            return await this.handleExecuteSQL(args.database_id, args.sql);
+            return await this.handleExecuteSQL(args);
           case 'sql_submit':
             return await this.handleSQLSubmit(args);
           case 'sql_status':
@@ -3667,8 +3671,12 @@ class MetabaseMCPServer {
     };
   }
 
-  async handleExecuteSQL(databaseId, sql) {
+  async handleExecuteSQL(args) {
     await this.ensureInitialized();
+
+    const databaseId = args.database_id;
+    const sql = args.sql;
+    const fullResults = args.full_results === true;
 
     if (this.initError) {
       throw new McpError(ErrorCode.InternalError, `Failed to initialize: ${this.initError.message}`);
@@ -3728,8 +3736,21 @@ class MetabaseMCPServer {
         rows.slice(0, 5).forEach((row) => {
           const formattedRow = row.map(cell => {
             if (cell === null) return 'NULL';
-            if (typeof cell === 'string' && cell.length > 30) {
-              return cell.substring(0, 27) + '...';
+
+            // Smart truncation logic
+            let truncateLimit = 100; // Increased base limit from 30
+
+            // Disable truncation for small result sets (DDL/procedures) or explicit full_results
+            if (fullResults || rows.length <= 2) {
+              truncateLimit = 50000;
+            }
+            // Check specific DDL-related column names
+            else if (columns.some(c => /definition|ddl|source|create_statement|routine_definition/i.test(c.name))) {
+              truncateLimit = 10000;
+            }
+
+            if (typeof cell === 'string' && cell.length > truncateLimit) {
+              return cell.substring(0, truncateLimit - 3) + '...';
             }
             return String(cell);
           });
