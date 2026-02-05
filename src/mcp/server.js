@@ -28,6 +28,7 @@ import {
 // Utils
 import { CacheManager, CacheKeys, globalCache } from '../utils/cache.js';
 import { config as appConfig } from '../utils/config.js';
+import { getJobStore } from './job-store.js';
 import {
   ResponseFormat,
   formatListResponse,
@@ -209,10 +210,43 @@ class MetabaseMCPServer {
               required: ['database_id'],
             },
           },
+          {
+            name: 'db_table_profile',
+            description: 'Get comprehensive table profile: row count, column types, distinct values, sample data. Auto-detects dimension/reference tables (dim_, ref_, lookup_ prefix). Ideal for understanding lookup tables before writing queries.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                database_id: {
+                  type: 'number',
+                  description: 'Database ID',
+                },
+                table_name: {
+                  type: 'string',
+                  description: 'Table name (with or without schema prefix)',
+                },
+                schema_name: {
+                  type: 'string',
+                  description: 'Schema name (default: public)',
+                  default: 'public',
+                },
+                show_distinct_values: {
+                  type: 'boolean',
+                  description: 'Show distinct values for each column (auto-enabled for dim/ref tables)',
+                  default: true,
+                },
+                sample_rows: {
+                  type: 'number',
+                  description: 'Number of sample rows to display (default: 3)',
+                  default: 3,
+                },
+              },
+              required: ['database_id', 'table_name'],
+            },
+          },
           // === SQL EXECUTION ===
           {
             name: 'sql_execute',
-            description: 'Run SQL queries against database - supports SELECT, DDL with security controls, returns formatted results',
+            description: 'Run SQL queries against database - supports SELECT, DDL with security controls, returns formatted results. For long-running queries (>60s), use sql_submit instead.',
             inputSchema: {
               type: 'object',
               properties: {
@@ -226,6 +260,57 @@ class MetabaseMCPServer {
                 },
               },
               required: ['database_id', 'sql'],
+            },
+          },
+          {
+            name: 'sql_submit',
+            description: 'Submit a long-running SQL query asynchronously. Returns immediately with job_id. Use sql_status to check progress. Ideal for queries that may take minutes.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                database_id: {
+                  type: 'number',
+                  description: 'Database ID',
+                },
+                sql: {
+                  type: 'string',
+                  description: 'SQL query to execute',
+                },
+                timeout_seconds: {
+                  type: 'number',
+                  description: 'Query timeout in seconds (default: 300, max: 1800)',
+                  default: 300,
+                },
+              },
+              required: ['database_id', 'sql'],
+            },
+          },
+          {
+            name: 'sql_status',
+            description: 'Check status of an async query submitted via sql_submit. Returns results when complete.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                job_id: {
+                  type: 'string',
+                  description: 'Job ID returned from sql_submit',
+                },
+              },
+              required: ['job_id'],
+            },
+          },
+          {
+            name: 'sql_cancel',
+            description: 'Cancel a running async query. Also attempts to cancel on database server.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                job_id: {
+                  type: 'string',
+                  description: 'Job ID to cancel',
+                },
+              },
+              required: ['job_id'],
             },
           },
           // === METABASE OBJECTS ===
@@ -3147,10 +3232,18 @@ class MetabaseMCPServer {
             return await this.handleGetDatabaseSchemas(args.database_id);
           case 'db_tables':
             return await this.handleGetDatabaseTables(args.database_id);
+          case 'db_table_profile':
+            return await this.handleTableProfile(args);
 
           // SQL execution
           case 'sql_execute':
             return await this.handleExecuteSQL(args.database_id, args.sql);
+          case 'sql_submit':
+            return await this.handleSQLSubmit(args);
+          case 'sql_status':
+            return await this.handleSQLStatus(args);
+          case 'sql_cancel':
+            return await this.handleSQLCancel(args);
 
           // Metabase objects
           case 'mb_question_create':
@@ -3452,7 +3545,7 @@ class MetabaseMCPServer {
       } catch (error) {
         logger.error(`Tool ${name} failed:`, error);
 
-        // Specific error handling
+        // Specific error handling with clearer messages
         let errorMessage = error.message;
         let errorCode = ErrorCode.InternalError;
 
@@ -3468,6 +3561,15 @@ class MetabaseMCPServer {
         } else if (error.message.includes('not found')) {
           errorMessage = `Resource not found: ${error.message}`;
           errorCode = ErrorCode.InvalidRequest;
+        } else if (error.message.includes('is not a function')) {
+          errorMessage = `Unexpected API response format. Metabase API may have changed or data is not an array. Details: ${error.message.substring(0, 100)}`;
+          errorCode = ErrorCode.InternalError;
+        } else if (error.message.includes('Cannot read properties of undefined') || error.message.includes('Cannot read property')) {
+          errorMessage = `Expected data not found. Check Metabase API response. Details: ${error.message.substring(0, 100)}`;
+          errorCode = ErrorCode.InternalError;
+        } else if (error.message.includes('timeout') || error.message.includes('ETIMEDOUT')) {
+          errorMessage = `Request timed out. Try a smaller query or use LIMIT.`;
+          errorCode = ErrorCode.InternalError;
         }
 
         throw new McpError(errorCode, errorMessage);
@@ -3613,44 +3715,65 @@ class MetabaseMCPServer {
       const rows = result.data.rows || [];
       const columns = result.data.cols || [];
 
-      let output = `✅ **Query executed successfully!**\\n\\n`;
-      output += `📊 **Results Summary:**\\n`;
-      output += `• Database ID: ${databaseId}\\n`;
-      output += `• Columns: ${columns.length} (${columns.map(col => col.name).join(', ')})\\n`;
-      output += `• Rows returned: ${rows.length}\\n`;
-      output += `• Execution time: ${executionTime}ms\\n\\n`;
+      let output = `✅ **Query successful** (${executionTime}ms)\\n`;
+      output += `📊 ${columns.length} columns, ${rows.length} rows\\n\\n`;
 
       if (rows.length > 0) {
-        output += `📋 **Sample Data (first 5 rows):**\\n\`\`\`\\n`;
-
-        // Create table header
+        // Show sample data (max 5 rows)
+        output += `**Data:**\\n\`\`\`\\n`;
         const headers = columns.map(col => col.name);
         output += headers.join(' | ') + '\\n';
         output += headers.map(() => '---').join(' | ') + '\\n';
 
-        // Add data rows
         rows.slice(0, 5).forEach((row) => {
           const formattedRow = row.map(cell => {
             if (cell === null) return 'NULL';
-            if (typeof cell === 'string' && cell.length > 50) {
-              return cell.substring(0, 47) + '...';
+            if (typeof cell === 'string' && cell.length > 30) {
+              return cell.substring(0, 27) + '...';
             }
             return String(cell);
           });
           output += formattedRow.join(' | ') + '\\n';
         });
-
         output += '\`\`\`\\n';
 
         if (rows.length > 5) {
-          output += `\\n... and ${rows.length - 5} more rows\\n`;
+          output += `_+${rows.length - 5} more rows_\\n`;
+        }
+
+        // Large result warning
+        if (rows.length > 100) {
+          output += `\\n⚠️ **Large result:** ${rows.length} rows returned. Use LIMIT for better performance.\\n`;
         }
       } else {
-        output += `ℹ️ No data returned by the query.\\n`;
+        // Empty result - smart detection
+        output += `ℹ️ No results.\\n`;
+
+        // Try to detect if table has data but query returned nothing
+        try {
+          const fromMatch = sql.match(/FROM\s+["']?([^\s"'.(]+)["']?/i) ||
+            sql.match(/FROM\s+["']?[^"'.]+["']?\.["']?([^\s"']+)["']?/i);
+          if (fromMatch) {
+            const tableName = fromMatch[1];
+            const countQuery = `SELECT COUNT(*) FROM ${tableName} LIMIT 1`;
+            try {
+              const countResult = await this.metabaseClient.executeNativeQuery(databaseId, countQuery);
+              const tableRowCount = countResult.data?.rows?.[0]?.[0] || 0;
+
+              if (tableRowCount > 0) {
+                output += `\\n⚠️ **Note:** \`${tableName}\` has ${tableRowCount.toLocaleString()} rows but query returned nothing.\\n`;
+                output += `Possible causes: WHERE clause too restrictive, column name typo, JOIN mismatch\\n`;
+                output += `💡 Use \`db_table_profile\` to inspect table structure.\\n`;
+              }
+            } catch (e) { /* ignore */ }
+          }
+        } catch (e) { /* ignore */ }
       }
 
-      // Add query info
-      output += `\\n🔍 **Query Details:**\\n\`\`\`sql\\n${sql}\\n\`\`\``;
+      // Tool suggestions (only for SELECT queries with few results)
+      if (sql.toLowerCase().trim().startsWith('select') && rows.length <= 5) {
+        output += `\\n💡 Related: \`db_table_profile\`, \`mb_field_values\`\\n`;
+      }
 
       return {
         content: [
@@ -3678,12 +3801,9 @@ class MetabaseMCPServer {
         });
       }
 
-      const output = `❌ **Query execution failed!**\\n\\n` +
-        `🚫 **Error Details:**\\n` +
-        `• Database ID: ${databaseId}\\n` +
-        `• Execution time: ${executionTime}ms\\n` +
-        `• Error: ${err.message}\\n\\n` +
-        `🔍 **Failed Query:**\\n\`\`\`sql\\n${sql}\\n\`\`\``;
+      // Compact error format - no query repetition
+      const shortSql = sql.length > 80 ? sql.substring(0, 77) + '...' : sql;
+      const output = `❌ SQL Error: ${err.message}\\nQuery: ${shortSql}`;
 
       return {
         content: [
@@ -3692,6 +3812,201 @@ class MetabaseMCPServer {
             text: output,
           },
         ],
+      };
+    }
+  }
+
+  /**
+   * Submit a long-running SQL query asynchronously
+   * Returns immediately with job_id, executes query in background
+   */
+  async handleSQLSubmit(args) {
+    try {
+      await this.ensureInitialized();
+
+      const databaseId = args.database_id;
+      const sql = args.sql;
+      const timeoutSeconds = Math.min(args.timeout_seconds || 300, 1800); // Max 30 minutes
+
+      // Check read-only mode for write operations
+      if (isReadOnlyMode() && detectWriteOperation(sql)) {
+        return {
+          content: [{ type: 'text', text: '❌ Write operations blocked in read-only mode' }],
+        };
+      }
+
+      // Get job store and create job
+      const jobStore = getJobStore();
+      const job = jobStore.create(databaseId, sql, timeoutSeconds);
+
+      // Add job marker to SQL for cancellation support
+      const markedSql = `/* job:${job.id} */ ${sql}`;
+
+      // Start query execution in background (non-blocking)
+      this.executeQueryBackground(job.id, databaseId, markedSql, timeoutSeconds * 1000);
+
+      const output = `✅ **Query Submitted**\\n` +
+        `📋 Job ID: \`${job.id}\`\\n` +
+        `⏱️ Timeout: ${timeoutSeconds} seconds\\n` +
+        `📊 Status: pending\\n\\n` +
+        `💡 Use \`sql_status\` with this job_id to check progress.`;
+
+      return {
+        content: [{ type: 'text', text: output }],
+      };
+
+    } catch (error) {
+      return {
+        content: [{ type: 'text', text: `❌ Failed to submit query: ${error.message}` }],
+      };
+    }
+  }
+
+  /**
+   * Execute query in background and update job status
+   */
+  async executeQueryBackground(jobId, databaseId, sql, timeoutMs) {
+    const jobStore = getJobStore();
+    const job = jobStore.get(jobId);
+
+    if (!job) return;
+
+    jobStore.markRunning(jobId);
+
+    try {
+      const result = await this.metabaseClient.executeNativeQueryWithTimeout(
+        databaseId,
+        sql,
+        timeoutMs,
+        job.abortController.signal
+      );
+
+      const rows = result.data?.rows || [];
+      jobStore.markComplete(jobId, result, rows.length);
+
+      logger.info(`Query job ${jobId} completed with ${rows.length} rows`);
+
+    } catch (error) {
+      if (error.message.includes('cancelled')) {
+        jobStore.markCancelled(jobId);
+      } else if (error.message.includes('timed out')) {
+        jobStore.markTimeout(jobId);
+        // Try to cancel on database
+        await this.metabaseClient.cancelPostgresQuery(databaseId, `job:${jobId}`);
+      } else {
+        jobStore.markFailed(jobId, error);
+      }
+
+      logger.error(`Query job ${jobId} failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Check status of an async query
+   */
+  async handleSQLStatus(args) {
+    try {
+      const jobStore = getJobStore();
+      const job = jobStore.get(args.job_id);
+
+      if (!job) {
+        return {
+          content: [{ type: 'text', text: `❌ Job not found: ${args.job_id}` }],
+        };
+      }
+
+      const elapsedSeconds = jobStore.getElapsedSeconds(args.job_id);
+
+      let output = `📋 **Job Status: ${job.id}**\\n`;
+      output += `📊 Status: ${job.status}\\n`;
+      output += `⏱️ Elapsed: ${elapsedSeconds} seconds\\n`;
+
+      if (job.status === 'running' || job.status === 'pending') {
+        output += `\\n💡 Query is still running. Check again later or use \`sql_cancel\` to stop.`;
+      } else if (job.status === 'complete') {
+        const rows = job.result?.data?.rows || [];
+        const columns = job.result?.data?.cols || [];
+
+        output += `✅ **Query Complete!**\\n`;
+        output += `📊 ${columns.length} columns, ${rows.length} rows\\n\\n`;
+
+        if (rows.length > 0) {
+          output += `**Data:**\\n\`\`\`\\n`;
+          const headers = columns.map(col => col.name);
+          output += headers.join(' | ') + '\\n';
+          output += headers.map(() => '---').join(' | ') + '\\n';
+
+          rows.slice(0, 5).forEach((row) => {
+            const formattedRow = row.map(cell => {
+              if (cell === null) return 'NULL';
+              const str = String(cell);
+              return str.length > 30 ? str.substring(0, 27) + '...' : str;
+            });
+            output += formattedRow.join(' | ') + '\\n';
+          });
+          output += '\`\`\`\\n';
+
+          if (rows.length > 5) {
+            output += `_+${rows.length - 5} more rows_\\n`;
+          }
+        }
+      } else if (job.status === 'failed' || job.status === 'timeout' || job.status === 'cancelled') {
+        output += `\\n❌ ${job.error || 'Query did not complete'}`;
+      }
+
+      return {
+        content: [{ type: 'text', text: output }],
+      };
+
+    } catch (error) {
+      return {
+        content: [{ type: 'text', text: `❌ Failed to check status: ${error.message}` }],
+      };
+    }
+  }
+
+  /**
+   * Cancel a running async query
+   */
+  async handleSQLCancel(args) {
+    try {
+      const jobStore = getJobStore();
+      const job = jobStore.get(args.job_id);
+
+      if (!job) {
+        return {
+          content: [{ type: 'text', text: `❌ Job not found: ${args.job_id}` }],
+        };
+      }
+
+      if (job.status !== 'running' && job.status !== 'pending') {
+        return {
+          content: [{ type: 'text', text: `ℹ️ Job is not running (status: ${job.status})` }],
+        };
+      }
+
+      // Abort the HTTP request
+      job.abortController.abort();
+
+      // Try to cancel on database
+      const dbCancelled = await this.metabaseClient.cancelPostgresQuery(
+        job.database_id,
+        `job:${job.id}`
+      );
+
+      jobStore.markCancelled(args.job_id);
+
+      const output = `✅ **Query Cancelled**\\n` +
+        `📋 Job ID: ${args.job_id}\\n` +
+        `🗄️ Database cancel: ${dbCancelled ? 'sent' : 'not available'}`;
+
+      return {
+        content: [{ type: 'text', text: output }],
+      };
+
+    } catch (error) {
+      return {
+        content: [{ type: 'text', text: `❌ Failed to cancel: ${error.message}` }],
       };
     }
   }
@@ -3863,16 +4178,47 @@ class MetabaseMCPServer {
         args.parameter_mappings
       );
 
-      return {
-        content: [{
-          type: 'text',
-          text: `✅ Card added to dashboard successfully!\\nCard ID: ${result.id}\\nPosition: Row ${args.position?.row || 0}, Col ${args.position?.col || 0}`
-        }],
-      };
+      // VERIFICATION: Check if card was actually added
+      try {
+        const dashboard = await this.metabaseClient.getDashboard(args.dashboard_id);
+        const cardExists = dashboard.ordered_cards?.some(c => c.card_id === args.question_id);
+        const cardCount = dashboard.ordered_cards?.length || 0;
+
+        if (cardExists) {
+          return {
+            content: [{
+              type: 'text',
+              text: `✅ Card verified!\\n` +
+                `Dashboard: ${dashboard.name} (ID: ${args.dashboard_id})\\n` +
+                `Total cards: ${cardCount}`
+            }],
+          };
+        } else {
+          return {
+            content: [{
+              type: 'text',
+              text: `⚠️ Card addition appears to have failed!\\n` +
+                `API reported success but card was not found on dashboard.\\n` +
+                `Dashboard ID: ${args.dashboard_id}, Question ID: ${args.question_id}\\n` +
+                `Please verify the question ID is valid.`
+            }],
+          };
+        }
+      } catch (verifyError) {
+        // Verification failed but original call might have succeeded
+        return {
+          content: [{
+            type: 'text',
+            text: `✅ Card added (verification unavailable)\\n` +
+              `Dashboard ID: ${args.dashboard_id}\\n` +
+              `Card ID: ${result?.id || 'N/A'}`
+          }],
+        };
+      }
 
     } catch (error) {
       return {
-        content: [{ type: 'text', text: `❌ Error adding card to dashboard: ${error.message}` }],
+        content: [{ type: 'text', text: `❌ Card addition error: ${error.message}` }],
       };
     }
   }
@@ -5962,6 +6308,147 @@ class MetabaseMCPServer {
     }
   }
 
+  /**
+   * Handle table profile request - comprehensive table analysis
+   * Automatically detects dim/ref tables and shows distinct values
+   */
+  async handleTableProfile(args) {
+    try {
+      await this.ensureInitialized();
+
+      const schemaName = args.schema_name || 'public';
+      const tableName = args.table_name;
+      const showDistinct = args.show_distinct_values !== false;
+      const sampleRows = args.sample_rows || 3;
+
+      // Detect if this is a dimension/reference table
+      const isDimTable = /^(dim_|ref_|lookup_|lkp_|d_|r_)/i.test(tableName);
+
+      // Get row count first
+      const countQuery = `SELECT COUNT(*) as cnt FROM "${schemaName}"."${tableName}"`;
+      const countResult = await this.metabaseClient.executeNativeQuery(args.database_id, countQuery);
+      const rowCount = countResult.data?.rows?.[0]?.[0] || 0;
+
+      // Get column info
+      const columnsQuery = `
+        SELECT 
+          column_name,
+          data_type,
+          is_nullable,
+          column_default
+        FROM information_schema.columns 
+        WHERE table_schema = '${schemaName}' AND table_name = '${tableName}'
+        ORDER BY ordinal_position
+      `;
+      const columnsResult = await this.metabaseClient.executeNativeQuery(args.database_id, columnsQuery);
+      const columns = columnsResult.data?.rows || [];
+
+      let output = '';
+
+      // Header with dim table indicator
+      if (isDimTable) {
+        output += `📊 **Dimension Table: ${schemaName}.${tableName}**\\n`;
+        output += `🏷️ _Detected as lookup/reference table_\\n\\n`;
+      } else {
+        output += `📊 **Table Profile: ${schemaName}.${tableName}**\\n\\n`;
+      }
+
+      output += `📈 **Overview:**\\n`;
+      output += `• Row count: ${rowCount.toLocaleString()}\\n`;
+      output += `• Columns: ${columns.length}\\n\\n`;
+
+      // Column details
+      output += `📋 **Columns:**\\n`;
+      columns.forEach(([name, type, nullable, defaultVal]) => {
+        const nullIndicator = nullable === 'YES' ? '?' : '';
+        output += `• \`${name}\` (${type}${nullIndicator})\\n`;
+      });
+      output += `\\n`;
+
+      // For dim tables or small tables, show distinct values
+      if ((isDimTable || rowCount < 1000) && showDistinct && columns.length > 0) {
+        output += `🔑 **Distinct Values:**\\n`;
+
+        // Get distinct counts and values for key columns (limit to first 5 columns)
+        const keyColumns = columns.slice(0, 5);
+        for (const [colName, colType] of keyColumns) {
+          try {
+            const distinctQuery = `
+              SELECT "${colName}", COUNT(*) as cnt 
+              FROM "${schemaName}"."${tableName}" 
+              GROUP BY "${colName}" 
+              ORDER BY cnt DESC 
+              LIMIT 10
+            `;
+            const distinctResult = await this.metabaseClient.executeNativeQuery(args.database_id, distinctQuery);
+            const distinctRows = distinctResult.data?.rows || [];
+
+            if (distinctRows.length > 0) {
+              const totalDistinct = distinctRows.length;
+              const values = distinctRows.slice(0, 5).map(r => r[0] === null ? 'NULL' : String(r[0])).join(', ');
+              output += `• \`${colName}\`: ${values}${totalDistinct > 5 ? ` (+${totalDistinct - 5} more)` : ''}\\n`;
+            }
+          } catch (e) {
+            // Skip columns that can't be queried
+          }
+        }
+        output += `\\n`;
+      }
+
+      // Sample data
+      if (sampleRows > 0 && rowCount > 0) {
+        try {
+          const sampleQuery = `SELECT * FROM "${schemaName}"."${tableName}" LIMIT ${sampleRows}`;
+          const sampleResult = await this.metabaseClient.executeNativeQuery(args.database_id, sampleQuery);
+          const sampleData = sampleResult.data?.rows || [];
+          const sampleCols = sampleResult.data?.cols || [];
+
+          if (sampleData.length > 0) {
+            output += `📝 **Sample Data (${sampleData.length} rows):**\\n\`\`\`\\n`;
+            // Header
+            const headers = sampleCols.map(c => c.name);
+            output += headers.join(' | ') + '\\n';
+            output += headers.map(() => '---').join(' | ') + '\\n';
+            // Data
+            sampleData.forEach(row => {
+              const formattedRow = row.map(cell => {
+                if (cell === null) return 'NULL';
+                const str = String(cell);
+                return str.length > 20 ? str.substring(0, 17) + '...' : str;
+              });
+              output += formattedRow.join(' | ') + '\\n';
+            });
+            output += '\`\`\`\\n';
+          }
+        } catch (e) {
+          output += `_Could not fetch sample data: ${e.message}_\\n`;
+        }
+      }
+
+      // Recommendations
+      output += `\\n💡 **Tips:**\\n`;
+      if (isDimTable) {
+        output += `• Use this table for JOINs as a lookup\\n`;
+        output += `• Use \`mb_field_values\` to see all values for a specific column\\n`;
+      }
+      if (rowCount === 0) {
+        output += `• ⚠️ Table is empty - data may need to be loaded\\n`;
+      }
+      if (rowCount > 100000) {
+        output += `• Large table - use LIMIT in queries\\n`;
+      }
+
+      return {
+        content: [{ type: 'text', text: output }]
+      };
+
+    } catch (error) {
+      return {
+        content: [{ type: 'text', text: `❌ Table profile error: ${error.message}` }]
+      };
+    }
+  }
+
   async handleIndexUsage(args) {
     try {
       await this.ensureInitialized();
@@ -6205,8 +6692,19 @@ class MetabaseMCPServer {
       };
 
     } catch (error) {
+      // Better error messages for common issues
+      let userMessage = error.message;
+
+      if (error.message.includes('already exists') || error.response?.status === 409) {
+        userMessage = `Collection already exists with this name: "${args.name}"`;
+      } else if (error.message.includes('permission') || error.response?.status === 403) {
+        userMessage = `Permission denied. Contact admin for collection creation access.`;
+      } else if (error.message.includes('parent') || (error.message.includes('not found') && args.parent_id)) {
+        userMessage = `Parent collection not found: ID ${args.parent_id}`;
+      }
+
       return {
-        content: [{ type: 'text', text: `❌ Collection creation failed: ${error.message}` }]
+        content: [{ type: 'text', text: `❌ Collection creation failed: ${userMessage}` }]
       };
     }
   }

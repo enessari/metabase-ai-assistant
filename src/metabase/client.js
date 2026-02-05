@@ -8,8 +8,10 @@ export class MetabaseClient {
     this.password = config.password;
     this.apiKey = config.apiKey;
     this.sessionToken = null;
+    this.defaultQueryTimeout = config.queryTimeout || 60000; // 60 seconds default
     this.client = axios.create({
       baseURL: this.baseURL,
+      timeout: this.defaultQueryTimeout,
       headers: {
         'Content-Type': 'application/json'
       }
@@ -79,7 +81,7 @@ export class MetabaseClient {
 
   async getDatabaseConnectionInfo(id) {
     await this.ensureAuthenticated();
-    
+
     // Önce gerçek credentials'ları MetabaseappDB'den al
     try {
       const realCredentials = await this.getRealCredentials(id);
@@ -89,11 +91,11 @@ export class MetabaseClient {
     } catch (error) {
       logger.warn('Could not get real credentials, using API response:', error.message);
     }
-    
+
     // Fallback: Normal API response
     const response = await this.client.get(`/api/database/${id}`);
     const db = response.data;
-    
+
     return {
       id: db.id,
       name: db.name,
@@ -116,13 +118,13 @@ export class MetabaseClient {
       FROM metabase_database 
       WHERE id = ${databaseId}
     `;
-    
+
     const result = await this.executeNativeQuery(6, query, { enforcePrefix: false }); // MetabaseappDB
-    
+
     if (result.data.rows.length > 0) {
       const [name, engine, details] = result.data.rows[0];
       const detailsObj = JSON.parse(details);
-      
+
       return {
         id: databaseId,
         name: name,
@@ -137,13 +139,13 @@ export class MetabaseClient {
         tunnel_enabled: detailsObj['tunnel-enabled'] || false
       };
     }
-    
+
     return null;
   }
 
   buildConnectionString(db) {
     const details = db.details;
-    
+
     switch (db.engine) {
       case 'postgres':
         return `postgresql://${details.user}:${details.password}@${details.host}:${details.port}/${details.dbname}`;
@@ -252,7 +254,7 @@ export class MetabaseClient {
 
   async createParametricQuestion(questionData) {
     await this.ensureAuthenticated();
-    
+
     // Build native query with parameters
     const nativeQuery = {
       type: 'native',
@@ -304,17 +306,17 @@ export class MetabaseClient {
   // SQL Operations
   async executeNativeQuery(databaseId, sql, options = {}) {
     await this.ensureAuthenticated();
-    
-    // Güvenlik kontrolü - DDL operasyonları için prefix zorunluluğu
+
+    // Security check - DDL operations require prefix
     if (options.enforcePrefix !== false && this.isDDLOperation(sql)) {
       this.validateDDLPrefix(sql);
     }
 
-    // DDL operations için farklı endpoint kullan
+    // DDL operations use different endpoint
     if (this.isDDLOperation(sql)) {
       return await this.executeDDLOperation(databaseId, sql);
     }
-    
+
     const query = {
       database: databaseId,
       type: 'native',
@@ -325,6 +327,68 @@ export class MetabaseClient {
     return await this.runQuery(query);
   }
 
+  /**
+   * Execute query with custom timeout and abort signal
+   * Used for async query management
+   */
+  async executeNativeQueryWithTimeout(databaseId, sql, timeoutMs, abortSignal = null) {
+    await this.ensureAuthenticated();
+
+    const query = {
+      database: databaseId,
+      type: 'native',
+      native: {
+        query: sql
+      }
+    };
+
+    const config = {
+      timeout: timeoutMs
+    };
+
+    // Add abort signal if provided
+    if (abortSignal) {
+      config.signal = abortSignal;
+    }
+
+    try {
+      const response = await this.client.post('/api/dataset', query, config);
+      return response.data;
+    } catch (error) {
+      if (error.name === 'AbortError' || error.code === 'ERR_CANCELED') {
+        throw new Error('Query cancelled');
+      }
+      if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
+        throw new Error(`Query timed out after ${timeoutMs / 1000} seconds`);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Cancel a running query on PostgreSQL database
+   * This sends pg_cancel_backend to stop the query on the server side
+   */
+  async cancelPostgresQuery(databaseId, queryMarker) {
+    try {
+      // Find and cancel queries containing the marker
+      const cancelSql = `
+        SELECT pg_cancel_backend(pid)
+        FROM pg_stat_activity
+        WHERE query LIKE '%${queryMarker}%'
+          AND state = 'active'
+          AND pid != pg_backend_pid()
+      `;
+
+      await this.executeNativeQuery(databaseId, cancelSql, { enforcePrefix: false });
+      logger.info(`Attempted to cancel query with marker: ${queryMarker}`);
+      return true;
+    } catch (error) {
+      logger.warn(`Failed to cancel query: ${error.message}`);
+      return false;
+    }
+  }
+
   async executeDDLOperation(databaseId, sql) {
     try {
       // DDL için action endpoint kullan
@@ -333,7 +397,7 @@ export class MetabaseClient {
         sql: sql,
         type: 'query'
       });
-      
+
       return {
         status: 'success',
         message: 'DDL operation completed',
@@ -350,7 +414,7 @@ export class MetabaseClient {
             query: sql
           }
         };
-        
+
         await this.runQuery(query);
         return {
           status: 'success',
@@ -360,7 +424,7 @@ export class MetabaseClient {
         };
       } catch (secondError) {
         logger.warn('DDL execution warning:', secondError.message);
-        
+
         // DDL işlemi başarılı olmuş olabilir, kontrol et
         if (secondError.message.includes('Select statement did not produce a ResultSet')) {
           return {
@@ -371,7 +435,7 @@ export class MetabaseClient {
             warning: secondError.message
           };
         }
-        
+
         throw secondError;
       }
     }
@@ -380,29 +444,29 @@ export class MetabaseClient {
   isDDLOperation(sql) {
     const upperSQL = sql.toUpperCase().trim();
     return upperSQL.startsWith('CREATE TABLE') ||
-           upperSQL.startsWith('CREATE VIEW') ||
-           upperSQL.startsWith('CREATE MATERIALIZED VIEW') ||
-           upperSQL.startsWith('CREATE INDEX') ||
-           upperSQL.startsWith('DROP TABLE') ||
-           upperSQL.startsWith('DROP VIEW') ||
-           upperSQL.startsWith('DROP MATERIALIZED VIEW') ||
-           upperSQL.startsWith('DROP INDEX');
+      upperSQL.startsWith('CREATE VIEW') ||
+      upperSQL.startsWith('CREATE MATERIALIZED VIEW') ||
+      upperSQL.startsWith('CREATE INDEX') ||
+      upperSQL.startsWith('DROP TABLE') ||
+      upperSQL.startsWith('DROP VIEW') ||
+      upperSQL.startsWith('DROP MATERIALIZED VIEW') ||
+      upperSQL.startsWith('DROP INDEX');
   }
 
   validateDDLPrefix(sql) {
     const upperSQL = sql.toUpperCase();
-    
+
     // CREATE operations için prefix kontrolü
-    if (upperSQL.includes('CREATE TABLE') || upperSQL.includes('CREATE VIEW') || 
-        upperSQL.includes('CREATE MATERIALIZED VIEW') || upperSQL.includes('CREATE INDEX')) {
+    if (upperSQL.includes('CREATE TABLE') || upperSQL.includes('CREATE VIEW') ||
+      upperSQL.includes('CREATE MATERIALIZED VIEW') || upperSQL.includes('CREATE INDEX')) {
       if (!sql.toLowerCase().includes('claude_ai_')) {
         throw new Error('DDL operations must use claude_ai_ prefix for object names');
       }
     }
-    
+
     // DROP operations için sadece prefix'li objelere izin
-    if (upperSQL.includes('DROP TABLE') || upperSQL.includes('DROP VIEW') || 
-        upperSQL.includes('DROP MATERIALIZED VIEW') || upperSQL.includes('DROP INDEX')) {
+    if (upperSQL.includes('DROP TABLE') || upperSQL.includes('DROP VIEW') ||
+      upperSQL.includes('DROP MATERIALIZED VIEW') || upperSQL.includes('DROP INDEX')) {
       if (!sql.toLowerCase().includes('claude_ai_')) {
         throw new Error('Can only drop objects with claude_ai_ prefix');
       }
@@ -470,14 +534,14 @@ export class MetabaseClient {
 
   async addCardToDashboard(dashboardId, cardId, options = {}) {
     await this.ensureAuthenticated();
-    
+
     try {
       // Try the API first (various endpoints)
       const endpoints = [
         `/api/dashboard/${dashboardId}/cards`,
         `/api/dashboard/${dashboardId}/dashcard`
       ];
-      
+
       for (const endpoint of endpoints) {
         try {
           const response = await this.client.post(endpoint, {
@@ -494,10 +558,10 @@ export class MetabaseClient {
           continue;
         }
       }
-      
+
       // If API fails, use direct database insertion as fallback
       return await this.addCardToDashboardDirect(dashboardId, cardId, options);
-      
+
     } catch (error) {
       throw new Error(`Failed to add card to dashboard: ${error.message}`);
     }
@@ -523,10 +587,10 @@ export class MetabaseClient {
         $1, $2, $3, $4, $5, $6, $7, $8
       ) RETURNING id
     `;
-    
+
     const values = [
       options.sizeX || 4,
-      options.sizeY || 4, 
+      options.sizeY || 4,
       options.row || 0,
       options.col || 0,
       cardId,
@@ -534,7 +598,7 @@ export class MetabaseClient {
       JSON.stringify(options.parameter_mappings || []),
       JSON.stringify(options.visualization_settings || {})
     ];
-    
+
     // This would need database connection - placeholder for now
     return { id: 'inserted_via_sql', method: 'direct_sql' };
   }
@@ -547,11 +611,11 @@ export class MetabaseClient {
 
   async addDashboardFilter(dashboardId, filter) {
     await this.ensureAuthenticated();
-    
+
     // Get current dashboard to add filter
     const dashboard = await this.client.get(`/api/dashboard/${dashboardId}`);
     const currentFilters = dashboard.data.parameters || [];
-    
+
     // Create proper Metabase filter format
     const newFilter = {
       id: this.generateFilterId(),
@@ -567,9 +631,9 @@ export class MetabaseClient {
     } else if (filter.default_value !== undefined) {
       newFilter.default = filter.default_value;
     }
-    
+
     const updatedFilters = [...currentFilters, newFilter];
-    
+
     return await this.updateDashboard(dashboardId, {
       parameters: updatedFilters
     });
