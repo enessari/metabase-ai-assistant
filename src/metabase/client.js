@@ -60,6 +60,39 @@ export class MetabaseClient {
     }
   }
 
+  /**
+   * Generic request wrapper for Metabase API
+   * Used by MCP handlers that need arbitrary API access
+   */
+  async request(method, endpoint, data = null, config = {}) {
+    await this.ensureAuthenticated();
+
+    // Normalize method
+    const methodUpper = method.toUpperCase();
+
+    const requestConfig = {
+      ...config,
+      method: methodUpper,
+      url: endpoint,
+      data: data
+    };
+
+    // For GET requests with data, move to params if not already set
+    if (methodUpper === 'GET' && data && !requestConfig.params) {
+      requestConfig.params = data;
+      delete requestConfig.data;
+    }
+
+    try {
+      const response = await this.client.request(requestConfig);
+      return response.data;
+    } catch (error) {
+      const errorMsg = error.response?.data?.message || error.message;
+      logger.error(`API Request Failed: ${methodUpper} ${endpoint}`, { error: errorMsg });
+      throw new Error(`Metabase API Error: ${errorMsg}`);
+    }
+  }
+
   // Database Operations
   async getDatabases() {
     await this.ensureAuthenticated();

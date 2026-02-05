@@ -4198,11 +4198,39 @@ class MetabaseMCPServer {
 
   async handleAddCardToDashboard(args) {
     try {
+      // Normalize position parameters (support both flat and nested structure)
+      // AI sometimes sends flat: { row: 0, col: 0, size_x: 4 }
+      // Or nested: { position: { row: 0, col: 0, sizeX: 4 } }
+      let position = args.position || {};
+
+      // If args has direct position props, merge them
+      if (args.row !== undefined) position.row = args.row;
+      if (args.col !== undefined) position.col = args.col;
+
+      // Handle size_x vs sizeX and size_y vs sizeY
+      if (args.size_x !== undefined) position.sizeX = args.size_x;
+      if (args.size_y !== undefined) position.sizeY = args.size_y;
+      if (args.sizeX !== undefined) position.sizeX = args.sizeX;
+      if (args.sizeY !== undefined) position.sizeY = args.sizeY;
+
+      // Map back to format expected by client
+      // The client expects: Options object with optional row, col, sizeX, sizeY
+      // But we need to make sure we pass the right keys to client.addCardToDashboard
+
+      // Create a normalized options object for the client
+      const options = {
+        row: position.row,
+        col: position.col,
+        sizeX: position.sizeX || position.size_x,
+        sizeY: position.sizeY || position.size_y,
+        parameter_mappings: args.parameter_mappings || []
+      };
+
       const result = await this.metabaseClient.addCardToDashboard(
         args.dashboard_id,
         args.question_id,
-        args.position,
-        args.parameter_mappings
+        options, // Pass normalized options instead of raw args
+        args.parameter_mappings // Double pass, just in case (client signature check needed)
       );
 
       // VERIFICATION: Check if card was actually added
