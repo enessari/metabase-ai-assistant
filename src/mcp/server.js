@@ -25,6 +25,7 @@ import {
   detectWriteOperation,
 } from './handlers/index.js';
 import { MetadataHandler } from './handlers/metadata.js';
+import { DashboardDirectHandler } from './handlers/dashboard_direct.js';
 
 // Utils
 import { CacheManager, CacheKeys, globalCache } from '../utils/cache.js';
@@ -102,6 +103,9 @@ class MetabaseMCPServer {
 
       // Initialize Metadata Handler
       this.metadataHandler = new MetadataHandler(this.metabaseClient);
+
+      // Initialize Direct Dashboard Handler
+      this.dashboardDirectHandler = new DashboardDirectHandler(this.metabaseClient, this.metadataHandler);
 
       await this.metabaseClient.authenticate();
       logger.info('Metabase client initialized');
@@ -572,6 +576,115 @@ class MetabaseMCPServer {
               },
               required: ['dashboard_id', 'question_id'],
             },
+          },
+          {
+            name: 'mb_dashboard_add_card_sql',
+            description: 'Add multiple cards to a dashboard using direct SQL inserts. Bypasses API limits, ensures precise positioning, and prevents timeouts. Use this for complex layouts.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                dashboard_id: {
+                  type: 'number',
+                  description: 'Target Dashboard ID'
+                },
+                cards: {
+                  type: 'array',
+                  description: 'List of cards to add with layout config',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      card_id: { type: 'number' },
+                      row: { type: 'number', description: 'Grid row (0-based)' },
+                      col: { type: 'number', description: 'Grid col (0-based)' },
+                      size_x: { type: 'number', default: 4 },
+                      size_y: { type: 'number', default: 4 },
+                      visualization_settings: { type: 'object', description: 'Optional override settings' },
+                      parameter_mappings: { type: 'array', description: 'Optional filter mappings' }
+                    },
+                    required: ['card_id', 'row', 'col']
+                  }
+                }
+              },
+              required: ['dashboard_id', 'cards']
+            }
+          },
+          {
+            name: 'mb_dashboard_update_layout',
+            description: 'Batch update position and size of multiple dashboard cards via direct SQL. Guarantees layout application.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                dashboard_id: { type: 'number' },
+                updates: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      card_id: { type: 'number' },
+                      row: { type: 'number' },
+                      col: { type: 'number' },
+                      size_x: { type: 'number' },
+                      size_y: { type: 'number' }
+                    },
+                    required: ['card_id']
+                  }
+                }
+              },
+              required: ['dashboard_id', 'updates']
+            }
+          },
+          {
+            name: 'mb_create_parametric_question',
+            description: 'Create a native SQL question with parameters (variables) directly via SQL. Essential for creating cards that accept dashboard filters.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                name: { type: 'string' },
+                description: { type: 'string' },
+                database_id: { type: 'number', description: 'ID of the database to query against (not the internal one)' },
+                query_sql: { type: 'string', description: 'SQL query with {{variable}} tags' },
+                parameters: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      name: { type: 'string' },
+                      display_name: { type: 'string' },
+                      type: { type: 'string', enum: ['text', 'number', 'date', 'dimension'] },
+                      required: { type: 'boolean' },
+                      default: { type: 'string' }
+                    },
+                    required: ['name', 'type']
+                  }
+                },
+                collection_id: { type: 'number', description: 'Optional collection to place question in' }
+              },
+              required: ['name', 'database_id', 'query_sql']
+            }
+          },
+          {
+            name: 'mb_link_dashboard_filter',
+            description: 'Link a dashboard filter to a card parameter via SQL. Updates parameter_mappings.',
+            inputSchema: {
+              type: 'object',
+              properties: {
+                dashboard_id: { type: 'number' },
+                card_id: { type: 'number' },
+                mappings: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      parameter_id: { type: 'string', description: 'The GUID of the dashboard parameter' },
+                      target_type: { type: 'string', enum: ['variable', 'dimension'] },
+                      target_value: { type: 'string', description: 'Variable name (without {{}}) or Field ID for dimension' }
+                    },
+                    required: ['parameter_id', 'target_type', 'target_value']
+                  }
+                }
+              },
+              required: ['dashboard_id', 'card_id', 'mappings']
+            }
           },
           {
             name: 'web_fetch_metabase_docs',
@@ -3335,7 +3448,15 @@ class MetabaseMCPServer {
           case 'mb_question_create_parametric':
             return await this.handleCreateParametricQuestion(args);
           case 'mb_dashboard_add_card':
-            return await this.handleAddCardToDashboard(args);
+            return await this.handlers.dashboard.handleAddCardToDashboard(args, context);
+          case 'mb_dashboard_add_card_sql':
+            return await this.dashboardDirectHandler.handleAddCardSql(args);
+          case 'mb_dashboard_update_layout':
+            return await this.dashboardDirectHandler.handleUpdateLayoutSql(args);
+          case 'mb_create_parametric_question':
+            return await this.dashboardDirectHandler.handleCreateParametricQuestionSql(args);
+          case 'mb_link_dashboard_filter':
+            return await this.dashboardDirectHandler.handleLinkDashboardFilter(args);
           case 'mb_metric_create':
             return await this.handleCreateMetric(args);
           case 'mb_dashboard_add_filter':

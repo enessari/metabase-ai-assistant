@@ -6,11 +6,11 @@ const { combine, timestamp, printf, colorize } = winston.format;
 // Custom format for console output
 const consoleFormat = printf(({ level, message, timestamp, ...meta }) => {
   let msg = `${timestamp} [${level}]: ${message}`;
-  
+
   if (Object.keys(meta).length > 0) {
     msg += ` ${JSON.stringify(meta)}`;
   }
-  
+
   return msg;
 });
 
@@ -30,24 +30,8 @@ export const logger = winston.createLogger({
         timestamp({ format: 'HH:mm:ss' }),
         consoleFormat
       )
-    }),
-    // File transport for errors
-    new winston.transports.File({
-      filename: 'error.log',
-      level: 'error',
-      format: combine(
-        timestamp(),
-        winston.format.json()
-      )
-    }),
-    // File transport for all logs
-    new winston.transports.File({
-      filename: 'combined.log',
-      format: combine(
-        timestamp(),
-        winston.format.json()
-      )
     })
+    // File transports removed to avoid EPERM in restricted env
   ]
 });
 
