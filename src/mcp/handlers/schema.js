@@ -2,27 +2,29 @@ import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { logger } from '../../utils/logger.js';
 
 export class SchemaHandler {
-    constructor(metabaseClient) {
-        this.metabaseClient = metabaseClient;
-    }
+  constructor(metabaseClient, activityLogger, connectionManager) {
+    this.metabaseClient = metabaseClient;
+    this.activityLogger = activityLogger || null;
+    this.connectionManager = connectionManager || null;
+  }
 
-    routes() {
-        return {
-            'db_table_create': (args) => this.handleCreateTableDirect(args),
-            'db_view_create': (args) => this.handleCreateViewDirect(args),
-            'db_matview_create': (args) => this.handleCreateMaterializedViewDirect(args),
-            'db_index_create': (args) => this.handleCreateIndexDirect(args),
-            'db_table_ddl': (args) => this.handleGetTableDDL(args.database_id, args.table_name),
-            'db_view_ddl': (args) => this.handleGetViewDDL(args.database_id, args.view_name),
-            'db_ai_list': (args) => this.handleListAIObjects(args.database_id),
-            'db_ai_drop': (args) => this.handleDropAIObject(args),
-            'db_schema_explore': (args) => this.handleExploreSchemaSimple(args),
-            'db_schema_analyze': (args) => this.handleExploreSchemaTablesAdvanced(args),
-            'db_relationships_detect': (args) => this.handleAnalyzeTableRelationships(args),
-            'ai_relationships_suggest': (args) => this.handleSuggestVirtualRelationships(args),
-            'mb_relationships_create': (args) => this.handleCreateRelationshipMapping(args),
-        };
-    }
+  routes() {
+    return {
+      'db_table_create': (args) => this.handleCreateTableDirect(args),
+      'db_view_create': (args) => this.handleCreateViewDirect(args),
+      'db_matview_create': (args) => this.handleCreateMaterializedViewDirect(args),
+      'db_index_create': (args) => this.handleCreateIndexDirect(args),
+      'db_table_ddl': (args) => this.handleGetTableDDL(args.database_id, args.table_name),
+      'db_view_ddl': (args) => this.handleGetViewDDL(args.database_id, args.view_name),
+      'db_ai_list': (args) => this.handleListAIObjects(args.database_id),
+      'db_ai_drop': (args) => this.handleDropAIObject(args),
+      'db_schema_explore': (args) => this.handleExploreSchemaSimple(args),
+      'db_schema_analyze': (args) => this.handleExploreSchemaTablesAdvanced(args),
+      'db_relationships_detect': (args) => this.handleAnalyzeTableRelationships(args),
+      'ai_relationships_suggest': (args) => this.handleSuggestVirtualRelationships(args),
+      'mb_relationships_create': (args) => this.handleCreateRelationshipMapping(args),
+    };
+  }
 
   async handleCreateTableDirect(args) {
     const startTime = Date.now();
@@ -904,5 +906,794 @@ export class SchemaHandler {
         },
       ],
     };
+  }
+
+
+  /**
+   * Handle table profile request - comprehensive table analysis
+   * Automatically detects dim/ref tables and shows distinct values
+   */
+  async handleTableProfile(args) {
+    try {
+      const schemaName = args.schema_name || 'public';
+      const tableName = args.table_name;
+      const showDistinct = args.show_distinct_values !== false;
+      const sampleRows = args.sample_rows || 3;
+
+      // Detect if this is a dimension/reference table
+      const isDimTable = /^(dim_|ref_|lookup_|lkp_|d_|r_)/i.test(tableName);
+
+      // Get row count first
+      const countQuery = `SELECT COUNT(*) as cnt FROM "${schemaName}"."${tableName}"`;
+      const countResult = await this.metabaseClient.executeNativeQuery(args.database_id, countQuery);
+      const rowCount = countResult.data?.rows?.[0]?.[0] || 0;
+
+      // Get column info
+      const columnsQuery = `
+          SELECT 
+            column_name,
+            data_type,
+            is_nullable,
+            column_default
+          FROM information_schema.columns 
+          WHERE table_schema = '${schemaName}' AND table_name = '${tableName}'
+          ORDER BY ordinal_position
+        `;
+      const columnsResult = await this.metabaseClient.executeNativeQuery(args.database_id, columnsQuery);
+      const columns = columnsResult.data?.rows || [];
+
+      let output = '';
+
+      // Header with dim table indicator
+      if (isDimTable) {
+        output += `📊 **Dimension Table: ${schemaName}.${tableName}**\\n`;
+        output += `🏷️ _Detected as lookup/reference table_\\n\\n`;
+      } else {
+        output += `📊 **Table Profile: ${schemaName}.${tableName}**\\n\\n`;
+      }
+
+      output += `📈 **Overview:**\\n`;
+      output += `• Row count: ${rowCount.toLocaleString()}\\n`;
+      output += `• Columns: ${columns.length}\\n\\n`;
+
+      // Column details
+      output += `📋 **Columns:**\\n`;
+      columns.forEach(([name, type, nullable, defaultVal]) => {
+        const nullIndicator = nullable === 'YES' ? '?' : '';
+        output += `• \`${name}\` (${type}${nullIndicator})\\n`;
+      });
+      output += `\\n`;
+
+      // For dim tables or small tables, show distinct values
+      if ((isDimTable || rowCount < 1000) && showDistinct && columns.length > 0) {
+        output += `🔑 **Distinct Values:**\\n`;
+
+        // Get distinct counts and values for key columns (limit to first 5 columns)
+        const keyColumns = columns.slice(0, 5);
+        for (const [colName, colType] of keyColumns) {
+          try {
+            const distinctQuery = `
+                SELECT "${colName}", COUNT(*) as cnt 
+                FROM "${schemaName}"."${tableName}" 
+                GROUP BY "${colName}" 
+                ORDER BY cnt DESC 
+                LIMIT 10
+              `;
+            const distinctResult = await this.metabaseClient.executeNativeQuery(args.database_id, distinctQuery);
+            const distinctRows = distinctResult.data?.rows || [];
+
+            if (distinctRows.length > 0) {
+              const totalDistinct = distinctRows.length;
+              const values = distinctRows.slice(0, 5).map(r => r[0] === null ? 'NULL' : String(r[0])).join(', ');
+              output += `• \`${colName}\`: ${values}${totalDistinct > 5 ? ` (+${totalDistinct - 5} more)` : ''}\\n`;
+            }
+          } catch (e) {
+            // Skip columns that can't be queried
+          }
+        }
+        output += `\\n`;
+      }
+
+      // Sample data
+      if (sampleRows > 0 && rowCount > 0) {
+        try {
+          const sampleQuery = `SELECT * FROM "${schemaName}"."${tableName}" LIMIT ${sampleRows}`;
+          const sampleResult = await this.metabaseClient.executeNativeQuery(args.database_id, sampleQuery);
+          const sampleData = sampleResult.data?.rows || [];
+          const sampleCols = sampleResult.data?.cols || [];
+
+          if (sampleData.length > 0) {
+            output += `📝 **Sample Data (${sampleData.length} rows):**\\n\`\`\`\\n`;
+            // Header
+            const headers = sampleCols.map(c => c.name);
+            output += headers.join(' | ') + '\\n';
+            output += headers.map(() => '---').join(' | ') + '\\n';
+            // Data
+            sampleData.forEach(row => {
+              const formattedRow = row.map(cell => {
+                if (cell === null) return 'NULL';
+                const str = String(cell);
+                return str.length > 20 ? str.substring(0, 17) + '...' : str;
+              });
+              output += formattedRow.join(' | ') + '\\n';
+            });
+            output += '\`\`\`\\n';
+          }
+        } catch (e) {
+          output += `_Could not fetch sample data: ${e.message}_\\n`;
+        }
+      }
+
+      // Recommendations
+      output += `\\n💡 **Tips:**\\n`;
+      if (isDimTable) {
+        output += `• Use this table for JOINs as a lookup\\n`;
+        output += `• Use \`mb_field_values\` to see all values for a specific column\\n`;
+      }
+      if (rowCount === 0) {
+        output += `• ⚠️ Table is empty - data may need to be loaded\\n`;
+      }
+      if (rowCount > 100000) {
+        output += `• Large table - use LIMIT in queries\\n`;
+      }
+
+      return {
+        content: [{ type: 'text', text: output }]
+      };
+
+    } catch (error) {
+      return {
+        content: [{ type: 'text', text: `❌ Table profile error: ${error.message}` }]
+      };
+    }
+  }
+
+
+  async handleGetConnectionInfo(databaseId) {
+    const connectionInfo = await this.metabaseClient.getDatabaseConnectionInfo(databaseId);
+
+    // Güvenlik için şifreyi gizle
+    const safeInfo = { ...connectionInfo };
+    if (safeInfo.password) {
+      safeInfo.password = '***HIDDEN***';
+    }
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Database Connection Info:\\n${JSON.stringify(safeInfo, null, 2)}`,
+        },
+      ],
+    };
+  }
+
+
+  // === DATABASE MAINTENANCE & QUERY ANALYSIS HANDLERS ===
+
+  async handleVacuumAnalyze(args) {
+    try {
+      const schemaName = args.schema_name || 'public';
+      const tableName = args.table_name;
+      const vacuumType = args.vacuum_type || 'vacuum_analyze';
+      const dryRun = args.dry_run !== false;
+
+      let command;
+      const tableRef = tableName ? `${schemaName}.${tableName}` : null;
+
+      switch (vacuumType) {
+        case 'vacuum':
+          command = tableRef ? `VACUUM ${tableRef}` : 'VACUUM';
+          break;
+        case 'vacuum_analyze':
+          command = tableRef ? `VACUUM ANALYZE ${tableRef}` : 'VACUUM ANALYZE';
+          break;
+        case 'vacuum_full':
+          command = tableRef ? `VACUUM FULL ${tableRef}` : 'VACUUM FULL';
+          break;
+        case 'analyze_only':
+          command = tableRef ? `ANALYZE ${tableRef}` : 'ANALYZE';
+          break;
+        default:
+          throw new Error(`Unknown vacuum type: ${vacuumType}`);
+      }
+
+      if (dryRun) {
+        return {
+          content: [{
+            type: 'text',
+            text: `🔍 **VACUUM/ANALYZE Preview (Dry Run)**\\n\\n` +
+              `📋 **Command:** \`${command}\`\\n` +
+              `🗃️ **Target:** ${tableRef || 'All tables in database'}\\n` +
+              `⚙️ **Type:** ${vacuumType}\\n\\n` +
+              `ℹ️ Set \`dry_run: false\` to execute this command.\\n\\n` +
+              `⚠️ **Note:** VACUUM FULL requires exclusive lock and may take time on large tables.`
+          }]
+        };
+      }
+
+      const startTime = Date.now();
+      await this.metabaseClient.executeNativeQuery(args.database_id, command);
+      const executionTime = Date.now() - startTime;
+
+      return {
+        content: [{
+          type: 'text',
+          text: `✅ **VACUUM/ANALYZE Completed!**\\n\\n` +
+            `📋 **Command:** \`${command}\`\\n` +
+            `🗃️ **Target:** ${tableRef || 'All tables'}\\n` +
+            `⏱️ **Execution Time:** ${executionTime}ms\\n\\n` +
+            `💡 Table statistics have been updated for better query planning.`
+        }]
+      };
+
+    } catch (error) {
+      return {
+        content: [{ type: 'text', text: `❌ VACUUM/ANALYZE failed: ${error.message}` }]
+      };
+    }
+  }
+
+
+  async handleQueryExplain(args) {
+    try {
+      const analyze = args.analyze || false;
+      const format = args.format || 'text';
+      const verbose = args.verbose || false;
+
+      let explainOptions = [];
+      if (analyze) explainOptions.push('ANALYZE');
+      if (verbose) explainOptions.push('VERBOSE');
+      if (format !== 'text') explainOptions.push(`FORMAT ${format.toUpperCase()}`);
+
+      const optionsStr = explainOptions.length > 0 ? `(${explainOptions.join(', ')})` : '';
+      const explainQuery = `EXPLAIN ${optionsStr} ${args.sql}`;
+
+      const result = await this.metabaseClient.executeNativeQuery(args.database_id, explainQuery);
+      const rows = result.data?.rows || [];
+
+      let planOutput = rows.map(row => row[0]).join('\\n');
+
+      // Analyze the plan for insights
+      let insights = [];
+      if (planOutput.includes('Seq Scan')) {
+        insights.push('⚠️ Sequential Scan detected - consider adding an index');
+      }
+      if (planOutput.includes('Nested Loop')) {
+        insights.push('ℹ️ Nested Loop join - efficient for small datasets');
+      }
+      if (planOutput.includes('Hash Join') || planOutput.includes('Merge Join')) {
+        insights.push('✅ Efficient join method being used');
+      }
+      if (planOutput.includes('Sort')) {
+        insights.push('ℹ️ Sort operation - may benefit from index on sort columns');
+      }
+
+      return {
+        content: [{
+          type: 'text',
+          text: `📊 **Query Execution Plan**\\n\\n` +
+            `⚙️ **Options:** ${analyze ? 'ANALYZE' : 'ESTIMATE'}, ${format.toUpperCase()}${verbose ? ', VERBOSE' : ''}\\n\\n` +
+            `\`\`\`\\n${planOutput}\\n\`\`\`\\n\\n` +
+            (insights.length > 0 ? `💡 **Insights:**\\n${insights.join('\\n')}` : '')
+        }]
+      };
+
+    } catch (error) {
+      return {
+        content: [{ type: 'text', text: `❌ Query explain failed: ${error.message}` }]
+      };
+    }
+  }
+
+
+  async handleTableStats(args) {
+    try {
+      const schemaName = args.schema_name || 'public';
+      const tableName = args.table_name;
+
+      const statsQuery = `
+          SELECT
+            schemaname,
+            relname as table_name,
+            n_live_tup as live_rows,
+            n_dead_tup as dead_rows,
+            ROUND(100.0 * n_dead_tup / NULLIF(n_live_tup + n_dead_tup, 0), 2) as dead_ratio_pct,
+            pg_size_pretty(pg_total_relation_size(schemaname || '.' || relname)) as total_size,
+            pg_size_pretty(pg_relation_size(schemaname || '.' || relname)) as table_size,
+            pg_size_pretty(pg_indexes_size(schemaname || '.' || relname)) as indexes_size,
+            last_vacuum,
+            last_autovacuum,
+            last_analyze,
+            last_autoanalyze,
+            vacuum_count,
+            autovacuum_count,
+            analyze_count,
+            autoanalyze_count
+          FROM pg_stat_user_tables
+          WHERE schemaname = '${schemaName}' AND relname = '${tableName}'
+        `;
+
+      const result = await this.metabaseClient.executeNativeQuery(args.database_id, statsQuery);
+      const rows = result.data?.rows || [];
+
+      if (rows.length === 0) {
+        return {
+          content: [{ type: 'text', text: `❌ Table not found: ${schemaName}.${tableName}` }]
+        };
+      }
+
+      const [schema, table, liveRows, deadRows, deadRatio, totalSize, tableSize, indexesSize,
+        lastVacuum, lastAutoVacuum, lastAnalyze, lastAutoAnalyze,
+        vacuumCount, autoVacuumCount, analyzeCount, autoAnalyzeCount] = rows[0];
+
+      let recommendations = [];
+      if (parseFloat(deadRatio) > 10) {
+        recommendations.push('⚠️ High dead tuple ratio - consider running VACUUM');
+      }
+      if (!lastVacuum && !lastAutoVacuum) {
+        recommendations.push('⚠️ Table has never been vacuumed');
+      }
+      if (!lastAnalyze && !lastAutoAnalyze) {
+        recommendations.push('⚠️ Table has never been analyzed - statistics may be stale');
+      }
+
+      return {
+        content: [{
+          type: 'text',
+          text: `📊 **Table Statistics: ${schema}.${table}**\\n\\n` +
+            `📈 **Row Counts:**\\n` +
+            `• Live Rows: ${liveRows?.toLocaleString() || 0}\\n` +
+            `• Dead Rows: ${deadRows?.toLocaleString() || 0}\\n` +
+            `• Dead Ratio: ${deadRatio || 0}%\\n\\n` +
+            `💾 **Size:**\\n` +
+            `• Total Size: ${totalSize}\\n` +
+            `• Table Size: ${tableSize}\\n` +
+            `• Indexes Size: ${indexesSize}\\n\\n` +
+            `🔧 **Maintenance:**\\n` +
+            `• Last Vacuum: ${lastVacuum || lastAutoVacuum || 'Never'}\\n` +
+            `• Last Analyze: ${lastAnalyze || lastAutoAnalyze || 'Never'}\\n` +
+            `• Vacuum Count: ${vacuumCount + autoVacuumCount}\\n` +
+            `• Analyze Count: ${analyzeCount + autoAnalyzeCount}\\n\\n` +
+            (recommendations.length > 0 ? `💡 **Recommendations:**\\n${recommendations.join('\\n')}` : '✅ Table is well maintained')
+        }]
+      };
+
+    } catch (error) {
+      return {
+        content: [{ type: 'text', text: `❌ Failed to get table stats: ${error.message}` }]
+      };
+    }
+  }
+
+
+  async handleIndexUsage(args) {
+    try {
+      const schemaName = args.schema_name || 'public';
+      const minSizeMb = args.min_size_mb || 0;
+
+      const indexQuery = `
+          SELECT
+            schemaname,
+            relname as table_name,
+            indexrelname as index_name,
+            idx_scan as scans,
+            idx_tup_read as tuples_read,
+            idx_tup_fetch as tuples_fetched,
+            pg_size_pretty(pg_relation_size(indexrelid)) as index_size,
+            pg_relation_size(indexrelid) / 1024 / 1024 as size_mb,
+            CASE
+              WHEN idx_scan = 0 THEN 'UNUSED'
+              WHEN idx_scan < 50 THEN 'RARELY_USED'
+              ELSE 'ACTIVE'
+            END as usage_status
+          FROM pg_stat_user_indexes
+          WHERE schemaname = '${schemaName}'
+            AND pg_relation_size(indexrelid) / 1024 / 1024 >= ${minSizeMb}
+          ORDER BY idx_scan ASC, pg_relation_size(indexrelid) DESC
+          LIMIT 20
+        `;
+
+      const result = await this.metabaseClient.executeNativeQuery(args.database_id, indexQuery);
+      const rows = result.data?.rows || [];
+
+      if (rows.length === 0) {
+        return {
+          content: [{ type: 'text', text: `ℹ️ No indexes found in schema: ${schemaName}` }]
+        };
+      }
+
+      let output = `📊 **Index Usage Analysis: ${schemaName}**\\n\\n`;
+
+      const unusedIndexes = rows.filter(r => r[8] === 'UNUSED');
+      const rarelyUsed = rows.filter(r => r[8] === 'RARELY_USED');
+      const activeIndexes = rows.filter(r => r[8] === 'ACTIVE');
+
+      if (unusedIndexes.length > 0) {
+        output += `⚠️ **Unused Indexes (candidates for removal):**\\n`;
+        unusedIndexes.slice(0, 5).forEach(idx => {
+          output += `• \`${idx[2]}\` on \`${idx[1]}\` - ${idx[6]}\\n`;
+        });
+        output += `\\n`;
+      }
+
+      if (rarelyUsed.length > 0) {
+        output += `🟡 **Rarely Used Indexes:**\\n`;
+        rarelyUsed.slice(0, 5).forEach(idx => {
+          output += `• \`${idx[2]}\` on \`${idx[1]}\` - ${idx[3]} scans, ${idx[6]}\\n`;
+        });
+        output += `\\n`;
+      }
+
+      output += `✅ **Active Indexes:** ${activeIndexes.length}\\n`;
+      output += `📦 **Total Indexes Analyzed:** ${rows.length}\\n\\n`;
+
+      if (unusedIndexes.length > 0) {
+        output += `💡 **Tip:** Unused indexes waste storage and slow down writes. Consider removing them after verification.`;
+      }
+
+      return {
+        content: [{ type: 'text', text: output }]
+      };
+
+    } catch (error) {
+      return {
+        content: [{ type: 'text', text: `❌ Index usage analysis failed: ${error.message}` }]
+      };
+    }
+  }
+
+
+  // === DEFINITION TABLES & PARAMETRIC QUESTIONS HANDLERS ===
+
+  async handleDefinitionTablesInit(args) {
+    try {
+      // Import definition tables utility
+      const { DefinitionTables } = await import('../utils/definition-tables.js');
+      const definitionTables = new DefinitionTables(this.metabaseClient);
+
+      const result = await definitionTables.initializeDefinitionTables(args.database_id);
+
+      const output = `✅ Definition Tables Initialized\n\n` +
+        `📊 Tables Created:\n` +
+        result.tables.map(table => `   • ${table}`).join('\n') + `\n\n` +
+        `🎯 Status: ${result.message}\n` +
+        `🗄️ Database ID: ${args.database_id}`;
+
+      return {
+        content: [{ type: 'text', text: output }],
+      };
+    } catch (error) {
+      return {
+        content: [{ type: 'text', text: `❌ Error initializing definition tables: ${error.message}` }],
+      };
+    }
+  }
+
+
+  async handleDefinitionSearchTerms(args) {
+    try {
+      const { DefinitionTables } = await import('../utils/definition-tables.js');
+      const definitionTables = new DefinitionTables(this.metabaseClient);
+
+      const terms = await definitionTables.searchBusinessTerms(
+        args.database_id,
+        args.search_term,
+        args.category
+      );
+
+      let output = `🔍 Business Terms Search: "${args.search_term}"\n\n`;
+
+      if (terms.length === 0) {
+        output += `❌ No terms found matching "${args.search_term}"`;
+      } else {
+        output += `📊 Found ${terms.length} matching terms:\n\n`;
+
+        terms.forEach((term, index) => {
+          output += `${index + 1}. **${term.term}**\n`;
+          output += `   📝 Definition: ${term.definition}\n`;
+          output += `   🏷️ Category: ${term.category}\n`;
+          if (term.synonyms && term.synonyms.length > 0) {
+            output += `   🔄 Synonyms: ${term.synonyms.join(', ')}\n`;
+          }
+          if (term.calculation_logic) {
+            output += `   🧮 Calculation: ${term.calculation_logic}\n`;
+          }
+          output += `   📈 Relevance: ${(term.relevance * 100).toFixed(1)}%\n\n`;
+        });
+      }
+
+      return {
+        content: [{ type: 'text', text: output }],
+      };
+    } catch (error) {
+      return {
+        content: [{ type: 'text', text: `❌ Error searching business terms: ${error.message}` }],
+      };
+    }
+  }
+
+
+  async handleDefinitionGetMetric(args) {
+    try {
+      const { DefinitionTables } = await import('../utils/definition-tables.js');
+      const definitionTables = new DefinitionTables(this.metabaseClient);
+
+      const metric = await definitionTables.getMetricDefinition(args.database_id, args.metric_name);
+
+      if (!metric) {
+        return {
+          content: [{ type: 'text', text: `❌ Metric "${args.metric_name}" not found in definition tables` }],
+        };
+      }
+
+      const output = `📊 Metric Definition: **${metric.display_name}**\n\n` +
+        `🏷️ Internal Name: ${metric.metric_name}\n` +
+        `📝 Description: ${metric.description}\n` +
+        `🧮 Calculation Formula: \`${metric.calculation_formula}\`\n` +
+        `📈 Aggregation Type: ${metric.aggregation_type}\n` +
+        `📏 Unit of Measure: ${metric.unit_of_measure}\n` +
+        `🏢 KPI Category: ${metric.kpi_category}\n` +
+        (metric.business_context ? `💼 Business Context: ${metric.business_context}\n` : '');
+
+      return {
+        content: [{ type: 'text', text: output }],
+      };
+    } catch (error) {
+      return {
+        content: [{ type: 'text', text: `❌ Error getting metric definition: ${error.message}` }],
+      };
+    }
+  }
+
+
+  async handleDefinitionGetTemplate(args) {
+    try {
+      const { DefinitionTables } = await import('../utils/definition-tables.js');
+      const definitionTables = new DefinitionTables(this.metabaseClient);
+
+      let template;
+      if (args.template_type === 'dashboard') {
+        template = await definitionTables.getDashboardTemplate(args.database_id, args.template_name);
+      } else if (args.template_type === 'question') {
+        template = await definitionTables.getQuestionTemplate(args.database_id, args.template_name);
+      } else {
+        throw new Error('Invalid template type. Must be "dashboard" or "question"');
+      }
+
+      if (!template) {
+        return {
+          content: [{ type: 'text', text: `❌ ${args.template_type} template "${args.template_name}" not found` }],
+        };
+      }
+
+      let output = `📋 ${args.template_type.charAt(0).toUpperCase() + args.template_type.slice(1)} Template: **${template.template_name}**\n\n`;
+      output += `📝 Description: ${template.description}\n`;
+
+      if (args.template_type === 'dashboard') {
+        output += `🏷️ Type: ${template.template_type}\n`;
+        if (template.required_metrics) {
+          output += `📊 Required Metrics: ${template.required_metrics.join(', ')}\n`;
+        }
+        if (template.layout_config) {
+          output += `📐 Layout Configuration:\n`;
+          output += `\`\`\`json\n${JSON.stringify(template.layout_config, null, 2)}\n\`\`\`\n`;
+        }
+      } else {
+        output += `🏷️ Question Type: ${template.question_type}\n`;
+        output += `📊 Visualization: ${template.visualization_type}\n`;
+        if (template.sql_template) {
+          output += `🗃️ SQL Template:\n\`\`\`sql\n${template.sql_template}\n\`\`\`\n`;
+        }
+        if (template.parameters) {
+          output += `⚙️ Parameters:\n`;
+          output += `\`\`\`json\n${JSON.stringify(template.parameters, null, 2)}\n\`\`\`\n`;
+        }
+        if (template.business_use_case) {
+          output += `💼 Business Use Case: ${template.business_use_case}\n`;
+        }
+      }
+
+      return {
+        content: [{ type: 'text', text: output }],
+      };
+    } catch (error) {
+      return {
+        content: [{ type: 'text', text: `❌ Error getting template: ${error.message}` }],
+      };
+    }
+  }
+
+
+  async handleDefinitionGlobalSearch(args) {
+    try {
+      const { DefinitionTables } = await import('../utils/definition-tables.js');
+      const definitionTables = new DefinitionTables(this.metabaseClient);
+
+      const results = await definitionTables.globalSearch(
+        args.database_id,
+        args.search_term,
+        args.content_types
+      );
+
+      let output = `🌐 Global Search: "${args.search_term}"\n\n`;
+
+      if (results.length === 0) {
+        output += `❌ No results found across all definition tables`;
+      } else {
+        output += `📊 Found ${results.length} results:\n\n`;
+
+        const groupedResults = {};
+        results.forEach(result => {
+          if (!groupedResults[result.content_type]) {
+            groupedResults[result.content_type] = [];
+          }
+          groupedResults[result.content_type].push(result);
+        });
+
+        Object.entries(groupedResults).forEach(([type, typeResults]) => {
+          output += `## ${type.replace('_', ' ').toUpperCase()}\n`;
+
+          typeResults.forEach((result, index) => {
+            output += `${index + 1}. **${result.source_table}**\n`;
+            output += `   📝 Content: ${result.content.substring(0, 200)}${result.content.length > 200 ? '...' : ''}\n`;
+            output += `   📈 Relevance: ${(result.relevance * 100).toFixed(1)}%\n`;
+            if (result.metadata && Object.keys(result.metadata).length > 0) {
+              output += `   ℹ️ Metadata: ${JSON.stringify(result.metadata)}\n`;
+            }
+            output += `\n`;
+          });
+        });
+      }
+
+      return {
+        content: [{ type: 'text', text: output }],
+      };
+    } catch (error) {
+      return {
+        content: [{ type: 'text', text: `❌ Error performing global search: ${error.message}` }],
+      };
+    }
+  }
+
+
+  async handleParametricQuestionCreate(args) {
+    try {
+      const { ParametricQuestions } = await import('../utils/parametric-questions.js');
+      const { DefinitionTables } = await import('../utils/definition-tables.js');
+
+      const definitionTables = new DefinitionTables(this.metabaseClient);
+      const parametricQuestions = new ParametricQuestions(this.metabaseClient, definitionTables);
+
+      const result = await parametricQuestions.createParametricQuestion(args.database_id, {
+        name: args.name,
+        description: args.description,
+        sql_template: args.sql_template,
+        parameters: args.parameters,
+        question_type: args.question_type,
+        collection_id: args.collection_id
+      });
+
+      const output = `✅ Parametric Question Created: **${result.question.name}**\n\n` +
+        `🆔 Question ID: ${result.question.id}\n` +
+        `📝 Description: ${args.description}\n` +
+        `⚙️ Parameters: ${result.parameters.join(', ')}\n` +
+        `📊 Question Type: ${args.question_type || 'table'}\n` +
+        `🗃️ SQL Template:\n\`\`\`sql\n${result.sql}\n\`\`\`\n` +
+        `🔗 Collection ID: ${args.collection_id || 'Root'}`;
+
+      return {
+        content: [{ type: 'text', text: output }],
+      };
+    } catch (error) {
+      return {
+        content: [{ type: 'text', text: `❌ Error creating parametric question: ${error.message}` }],
+      };
+    }
+  }
+
+
+  async handleParametricDashboardCreate(args) {
+    try {
+      const { ParametricQuestions } = await import('../utils/parametric-questions.js');
+      const { DefinitionTables } = await import('../utils/definition-tables.js');
+
+      const definitionTables = new DefinitionTables(this.metabaseClient);
+      const parametricQuestions = new ParametricQuestions(this.metabaseClient, definitionTables);
+
+      const result = await parametricQuestions.createDashboardWithParametricQuestions(args.database_id, {
+        name: args.name,
+        description: args.description,
+        questions: args.questions,
+        filters: args.filters,
+        layout: args.layout,
+        collection_id: args.collection_id
+      });
+
+      const output = `✅ Parametric Dashboard Created: **${result.dashboard.name}**\n\n` +
+        `🆔 Dashboard ID: ${result.dashboard.id}\n` +
+        `📝 Description: ${args.description}\n` +
+        `❓ Questions Created: ${result.questions.length}\n` +
+        `🎛️ Dashboard Filters: ${result.filters.length}\n` +
+        `📊 Cards Added: ${result.cards.length}\n` +
+        `🔗 Collection ID: ${args.collection_id || 'Root'}\n\n` +
+        `**Created Questions:**\n` +
+        result.questions.map((q, i) => `${i + 1}. ${q.question.name} (ID: ${q.question.id})`).join('\n');
+
+      return {
+        content: [{ type: 'text', text: output }],
+      };
+    } catch (error) {
+      return {
+        content: [{ type: 'text', text: `❌ Error creating parametric dashboard: ${error.message}` }],
+      };
+    }
+  }
+
+
+  async handleParametricTemplatePreset(args) {
+    try {
+      const { ParametricQuestions } = await import('../utils/parametric-questions.js');
+      const { DefinitionTables } = await import('../utils/definition-tables.js');
+
+      const definitionTables = new DefinitionTables(this.metabaseClient);
+      const parametricQuestions = new ParametricQuestions(this.metabaseClient, definitionTables);
+
+      let result;
+      const config = { ...args.config, collection_id: args.collection_id };
+
+      switch (args.preset_type) {
+        case 'date_range_analysis':
+          result = await parametricQuestions.createDateRangeAnalysisQuestion(args.database_id, config);
+          break;
+        case 'category_filter':
+          result = await parametricQuestions.createCategoryFilterQuestion(args.database_id, config);
+          break;
+        case 'text_search':
+          result = await parametricQuestions.createTextSearchQuestion(args.database_id, config);
+          break;
+        case 'period_comparison':
+          result = await parametricQuestions.createPeriodComparisonQuestion(args.database_id, config);
+          break;
+        default:
+          throw new Error(`Unknown preset type: ${args.preset_type}`);
+      }
+
+      const presetNames = {
+        'date_range_analysis': 'Date Range Analysis',
+        'category_filter': 'Category Filter',
+        'text_search': 'Text Search',
+        'period_comparison': 'Period Comparison'
+      };
+
+      const output = `✅ Preset Template Created: **${presetNames[args.preset_type]}**\n\n` +
+        `🆔 Question ID: ${result.question.id}\n` +
+        `📝 Name: ${result.question.name}\n` +
+        `⚙️ Parameters: ${result.parameters.join(', ')}\n` +
+        `🗃️ SQL Template:\n\`\`\`sql\n${result.sql}\n\`\`\`\n` +
+        `🔗 Collection ID: ${args.collection_id || 'Root'}`;
+
+      return {
+        content: [{ type: 'text', text: output }],
+      };
+    } catch (error) {
+      return {
+        content: [{ type: 'text', text: `❌ Error creating preset template: ${error.message}` }],
+      };
+    }
+  }
+
+
+  async getConnection(databaseId) {
+    return await this.connectionManager.getConnection(this.metabaseClient, databaseId);
+  }
+
+
+  async getDirectClient(databaseId) {
+    const connection = await this.getConnection(databaseId);
+    if (connection.type !== 'direct') {
+      throw new Error('This operation requires direct database connection. Direct connection not available.');
+    }
+    return connection.client;
   }
 }

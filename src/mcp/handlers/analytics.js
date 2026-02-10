@@ -2,29 +2,34 @@ import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { logger } from '../../utils/logger.js';
 
 export class AnalyticsHandler {
-    constructor(metabaseClient, metadataClient) {
-        this.metabaseClient = metabaseClient;
-        this.metadataClient = metadataClient;
-    }
+  constructor(metabaseClient, metadataClient, activityLogger) {
+    this.metabaseClient = metabaseClient;
+    this.metadataClient = metadataClient || null;
+    this.activityLogger = activityLogger || null;
+  }
 
-    routes() {
-        return {
-            'mb_meta_query_performance': (args) => this.handleMetadataQueryPerformance(args),
-            'mb_meta_content_usage': (args) => this.handleMetadataContentUsage(args),
-            'mb_meta_user_activity': (args) => this.handleMetadataUserActivity(args),
-            'mb_meta_database_usage': (args) => this.handleMetadataDatabaseUsage(args),
-            'mb_meta_dashboard_complexity': (args) => this.handleMetadataDashboardComplexity(args),
-            'mb_meta_info': (args) => this.handleMetadataInfo(args),
-            'mb_meta_table_dependencies': (args) => this.handleMetadataTableDependencies(args),
-            'mb_meta_impact_analysis': (args) => this.handleMetadataImpactAnalysis(args),
-            'mb_meta_optimization_recommendations': (args) => this.handleMetadataOptimizationRecommendations(args),
-            'mb_meta_error_patterns': (args) => this.handleMetadataErrorPatterns(args),
-            'mb_meta_export_workspace': (args) => this.handleMetadataExportWorkspace(args),
-            'mb_meta_import_preview': (args) => this.handleMetadataImportPreview(args),
-            'mb_meta_compare_environments': (args) => this.handleMetadataCompareEnvironments(args),
-            'mb_meta_auto_cleanup': (args) => this.handleMetadataAutoCleanup(args),
-        };
-    }
+  setMetadataClient(client) {
+    this.metadataClient = client;
+  }
+
+  routes() {
+    return {
+      'mb_meta_query_performance': (args) => this.handleMetadataQueryPerformance(args),
+      'mb_meta_content_usage': (args) => this.handleMetadataContentUsage(args),
+      'mb_meta_user_activity': (args) => this.handleMetadataUserActivity(args),
+      'mb_meta_database_usage': (args) => this.handleMetadataDatabaseUsage(args),
+      'mb_meta_dashboard_complexity': (args) => this.handleMetadataDashboardComplexity(args),
+      'mb_meta_info': (args) => this.handleMetadataInfo(args),
+      'mb_meta_table_dependencies': (args) => this.handleMetadataTableDependencies(args),
+      'mb_meta_impact_analysis': (args) => this.handleMetadataImpactAnalysis(args),
+      'mb_meta_optimization_recommendations': (args) => this.handleMetadataOptimizationRecommendations(args),
+      'mb_meta_error_patterns': (args) => this.handleMetadataErrorPatterns(args),
+      'mb_meta_export_workspace': (args) => this.handleMetadataExportWorkspace(args),
+      'mb_meta_import_preview': (args) => this.handleMetadataImportPreview(args),
+      'mb_meta_compare_environments': (args) => this.handleMetadataCompareEnvironments(args),
+      'mb_meta_auto_cleanup': (args) => this.handleMetadataAutoCleanup(args),
+    };
+  }
 
   async handleMetadataQueryPerformance(args) {
     if (!this.metadataClient) {
@@ -1298,6 +1303,345 @@ export class AnalyticsHandler {
           text: `❌ **Auto-cleanup failed:** ${error.message}`
         }]
       };
+    }
+  }
+
+
+  // === ACTIVITY LOGGING HANDLERS ===
+
+  async handleInitializeActivityLog(args) {
+    try {
+      if (!this.activityLogger) {
+        this.activityLogger = new ActivityLogger(this.metabaseClient, {
+          logTableName: 'claude_ai_activity_log',
+          schema: args.schema || 'public'
+        });
+      }
+
+      await this.activityLogger.initialize(args.database_id);
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `✅ **Activity Logging Initialized!**\\n\\n` +
+              `📊 **Configuration:**\\n` +
+              `• Database ID: ${args.database_id}\\n` +
+              `• Schema: ${args.schema || 'public'}\\n` +
+              `• Log Table: \`claude_ai_activity_log\`\\n` +
+              `• Session ID: \`${this.activityLogger.sessionId}\`\\n\\n` +
+              `🎯 **What Gets Tracked:**\\n` +
+              `• SQL query executions and performance\\n` +
+              `• Table/View/Index creation operations\\n` +
+              `• Metabase dashboard and question creation\\n` +
+              `• Error patterns and debugging info\\n` +
+              `• Execution times and resource usage\\n\\n` +
+              `📈 **Available Analytics:**\\n` +
+              `• Session summaries and insights\\n` +
+              `• Database usage patterns\\n` +
+              `• Performance optimization suggestions\\n` +
+              `• Error analysis and troubleshooting\\n\\n` +
+              `💡 **Next Steps:** All your operations are now being tracked for analytics!`,
+          },
+        ],
+      };
+
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `❌ **Activity Logging Initialization Failed!**\\n\\n` +
+              `🚫 **Error:** ${error.message}\\n\\n` +
+              `🔧 **Troubleshooting:**\\n` +
+              `• Ensure you have CREATE permissions on the schema\\n` +
+              `• Verify database connection is working\\n` +
+              `• Check that the database supports the required SQL features`,
+          },
+        ],
+      };
+    }
+  }
+
+
+  async handleGetSessionSummary(args) {
+    if (!this.activityLogger) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `⚠️ **Activity logging not initialized.** Run \`activity_log_init\` first.`,
+          },
+        ],
+      };
+    }
+
+    try {
+      const summary = await this.activityLogger.getSessionSummary(args.session_id);
+
+      if (!summary) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `📊 **No session data found.**\\n\\nSession ID: ${args.session_id || 'current session'}\\n\\nTry running some operations first to generate activity data.`,
+            },
+          ],
+        };
+      }
+
+      const [sessionId, sessionStart, sessionEnd, totalOps, successOps, failedOps,
+        dbsUsed, opTypes, totalExecTime, avgExecTime, totalRowsReturned,
+        totalRowsAffected, ddlOps, queryOps, metabaseOps] = summary;
+
+      const duration = new Date(sessionEnd) - new Date(sessionStart);
+      const durationMin = Math.round(duration / 60000);
+      const successRate = ((successOps / totalOps) * 100).toFixed(1);
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `📊 **Session Summary**\\n\\n` +
+              `🔢 **Session:** \`${sessionId}\`\\n` +
+              `⏰ **Duration:** ${durationMin} minutes\\n` +
+              `✅ **Success Rate:** ${successRate}% (${successOps}/${totalOps} operations)\\n\\n` +
+              `📈 **Operations Breakdown:**\\n` +
+              `• Total Operations: ${totalOps}\\n` +
+              `• SQL Queries: ${queryOps}\\n` +
+              `• DDL Operations: ${ddlOps}\\n` +
+              `• Metabase Operations: ${metabaseOps}\\n` +
+              `• Failed Operations: ${failedOps}\\n\\n` +
+              `⚡ **Performance:**\\n` +
+              `• Total Execution Time: ${totalExecTime}ms\\n` +
+              `• Average Execution Time: ${Math.round(avgExecTime)}ms\\n` +
+              `• Data Processed: ${totalRowsReturned} rows returned\\n\\n` +
+              `🎯 **Scope:**\\n` +
+              `• Databases Used: ${dbsUsed}\\n` +
+              `• Operation Types: ${opTypes}`,
+          },
+        ],
+      };
+
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `❌ **Failed to get session summary:** ${error.message}`,
+          },
+        ],
+      };
+    }
+  }
+
+
+  async handleGetOperationStats(args) {
+    if (!this.activityLogger) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `⚠️ **Activity logging not initialized.** Run \`activity_log_init\` first.`,
+          },
+        ],
+      };
+    }
+
+    try {
+      const stats = await this.activityLogger.getOperationStats(args.days || 7);
+
+      if (stats.length === 0) {
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `📊 **No operation data found** for the last ${args.days || 7} days.`,
+            },
+          ],
+        };
+      }
+
+      let output = `📊 **Operation Statistics** (Last ${args.days || 7} Days)\\n\\n`;
+
+      stats.slice(0, 10).forEach((stat, index) => {
+        const [opType, opCategory, opCount, successCount, errorCount, avgTime] = stat;
+        const successRate = ((successCount / opCount) * 100).toFixed(1);
+
+        output += `${index + 1}. **${opType}** (${opCategory})\\n`;
+        output += `   • Executions: ${opCount} (${successRate}% success)\\n`;
+        output += `   • Avg Time: ${Math.round(avgTime)}ms\\n\\n`;
+      });
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: output,
+          },
+        ],
+      };
+
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `❌ **Failed to get operation stats:** ${error.message}`,
+          },
+        ],
+      };
+    }
+  }
+
+
+  async handleGetDatabaseUsage(args) {
+    if (!this.activityLogger) {
+      return {
+        content: [{ type: 'text', text: `⚠️ **Activity logging not initialized.** Run \`activity_log_init\` first.` }],
+      };
+    }
+
+    try {
+      const usage = await this.activityLogger.getDatabaseUsageStats(args.days || 30);
+
+      if (usage.length === 0) {
+        return {
+          content: [{ type: 'text', text: `📊 **No database usage data found** for the last ${args.days || 30} days.` }],
+        };
+      }
+
+      let output = `🗃️ **Database Usage** (Last ${args.days || 30} Days)\\n\\n`;
+
+      usage.slice(0, 5).forEach((db, index) => {
+        const [dbId, dbName, totalOps, uniqueSessions] = db;
+        output += `${index + 1}. **${dbName || `DB ${dbId}`}**: ${totalOps} ops, ${uniqueSessions} sessions\\n`;
+      });
+
+      return { content: [{ type: 'text', text: output }] };
+
+    } catch (error) {
+      return { content: [{ type: 'text', text: `❌ **Failed to get database usage:** ${error.message}` }] };
+    }
+  }
+
+
+  async handleGetErrorAnalysis(args) {
+    if (!this.activityLogger) {
+      return { content: [{ type: 'text', text: `⚠️ **Activity logging not initialized.**` }] };
+    }
+
+    try {
+      const errors = await this.activityLogger.getErrorAnalysis(args.days || 7);
+
+      if (errors.length === 0) {
+        return { content: [{ type: 'text', text: `✅ **No errors found** in the last ${args.days || 7} days! 🎉` }] };
+      }
+
+      let output = `🚨 **Error Analysis** (Last ${args.days || 7} Days)\\n\\n`;
+
+      errors.slice(0, 5).forEach((error, index) => {
+        const [opType, errorMsg, errorCount] = error;
+        output += `${index + 1}. **${opType}**: ${errorCount} errors\\n`;
+        output += `   ${errorMsg.substring(0, 80)}...\\n\\n`;
+      });
+
+      return { content: [{ type: 'text', text: output }] };
+
+    } catch (error) {
+      return { content: [{ type: 'text', text: `❌ **Error analysis failed:** ${error.message}` }] };
+    }
+  }
+
+
+  async handleGetPerformanceInsights(args) {
+    if (!this.activityLogger) {
+      return { content: [{ type: 'text', text: `⚠️ **Activity logging not initialized.**` }] };
+    }
+
+    try {
+      const insights = await this.activityLogger.getPerformanceInsights(args.days || 7);
+
+      if (insights.length === 0) {
+        return { content: [{ type: 'text', text: `📊 **No performance data found.**` }] };
+      }
+
+      let output = `⚡ **Performance Insights** (Last ${args.days || 7} Days)\\n\\n`;
+
+      insights.slice(0, 5).forEach((insight, index) => {
+        const [opType, execCount, , , avgTime, , p95Time, slowOps] = insight;
+
+        output += `${index + 1}. **${opType}**\\n`;
+        output += `   • ${execCount} executions, avg ${Math.round(avgTime)}ms\\n`;
+        output += `   • 95th percentile: ${Math.round(p95Time)}ms\\n`;
+        output += `   • Slow operations: ${slowOps}\\n\\n`;
+      });
+
+      return { content: [{ type: 'text', text: output }] };
+
+    } catch (error) {
+      return { content: [{ type: 'text', text: `❌ **Performance insights failed:** ${error.message}` }] };
+    }
+  }
+
+
+  async handleGetActivityTimeline(args) {
+    if (!this.activityLogger) {
+      return { content: [{ type: 'text', text: `⚠️ **Activity logging not initialized.**` }] };
+    }
+
+    try {
+      const timeline = await this.activityLogger.getActivityTimeline(args.days || 7, args.limit || 20);
+
+      if (timeline.length === 0) {
+        return { content: [{ type: 'text', text: `📊 **No recent activity found.**` }] };
+      }
+
+      let output = `📅 **Recent Activity**\\n\\n`;
+
+      timeline.forEach((activity, index) => {
+        const [timestamp, , opType, , , status] = activity;
+        const statusIcon = status === 'success' ? '✅' : '❌';
+        output += `${index + 1}. ${statusIcon} ${opType} - ${timestamp}\\n`;
+      });
+
+      return { content: [{ type: 'text', text: output }] };
+
+    } catch (error) {
+      return { content: [{ type: 'text', text: `❌ **Timeline failed:** ${error.message}` }] };
+    }
+  }
+
+
+  async handleCleanupActivityLogs(args) {
+    if (!this.activityLogger) {
+      return { content: [{ type: 'text', text: `⚠️ **Activity logging not initialized.**` }] };
+    }
+
+    try {
+      const retentionDays = args.retention_days || 90;
+      const isDryRun = args.dry_run !== false;
+
+      if (isDryRun) {
+        return {
+          content: [{
+            type: 'text',
+            text: `🔍 **Cleanup Preview**: Would delete logs older than ${retentionDays} days. Set \`dry_run: false\` to execute.`
+          }],
+        };
+      }
+
+      const deletedCount = await this.activityLogger.cleanupOldLogs();
+
+      return {
+        content: [{
+          type: 'text',
+          text: `✅ **Cleanup completed!** Deleted ${deletedCount} old log entries.`
+        }],
+      };
+
+    } catch (error) {
+      return { content: [{ type: 'text', text: `❌ **Cleanup failed:** ${error.message}` }] };
     }
   }
 }

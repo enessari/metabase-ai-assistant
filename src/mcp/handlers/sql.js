@@ -1,36 +1,39 @@
 import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { logger } from '../../utils/logger.js';
+import { CacheKeys, globalCache } from '../../utils/cache.js';
+import { getJobStore } from '../job-store.js';
+import {
+  ResponseFormat,
+  formatListResponse,
+  minimalDatabase,
+} from '../../utils/response-optimizer.js';
 
 /**
  * Handler for SQL Execution Operations
  */
 export class SqlHandler {
-    constructor(metabaseClient, cache) {
-        this.metabaseClient = metabaseClient;
-        this.cache = cache;
-        this.activeJobs = new Map();
-        this.jobCounter = 0;
-    }
+  constructor(metabaseClient, cache, activityLogger, aiAssistant) {
+    this.metabaseClient = metabaseClient;
+    this.cache = cache;
+    this.activeJobs = new Map();
+    this.activityLogger = activityLogger || null;
+    this.aiAssistant = aiAssistant || null;
+    this.jobCounter = 0;
+  }
 
-    routes() {
-        return {
-            'sql_execute': (args) => this.handleExecuteSQL(args),
-            'sql_submit': (args) => this.handleSQLSubmit(args),
-            'sql_status': (args) => this.handleSQLStatus(args),
-            'sql_cancel': (args) => this.handleSQLCancel(args),
-        };
-    }
+  routes() {
+    return {
+      'sql_execute': (args) => this.handleExecuteSQL(args),
+      'sql_submit': (args) => this.handleSQLSubmit(args),
+      'sql_status': (args) => this.handleSQLStatus(args),
+      'sql_cancel': (args) => this.handleSQLCancel(args),
+    };
+  }
 
-    async handleExecuteSQL(args) {
-    await this.ensureInitialized();
-
+  async handleExecuteSQL(args) {
     const databaseId = args.database_id;
     const sql = args.sql;
     const fullResults = args.full_results === true;
-
-    if (this.initError) {
-      throw new McpError(ErrorCode.InternalError, `Failed to initialize: ${this.initError.message}`);
-    }
 
     // Read-Only Mode Security Check
     const isReadOnlyMode = process.env.METABASE_READ_ONLY_MODE !== 'false';
@@ -185,16 +188,14 @@ export class SqlHandler {
         ],
       };
     }
-    }
+  }
 
   /**
    * Submit a long-running SQL query asynchronously
    * Returns immediately with job_id, executes query in background
    */
-    async handleSQLSubmit(args) {
+  async handleSQLSubmit(args) {
     try {
-      await this.ensureInitialized();
-
       const databaseId = args.database_id;
       const sql = args.sql;
       const timeoutSeconds = Math.min(args.timeout_seconds || 300, 1800); // Max 30 minutes
@@ -231,12 +232,12 @@ export class SqlHandler {
         content: [{ type: 'text', text: `❌ Failed to submit query: ${error.message}` }],
       };
     }
-    }
+  }
 
   /**
    * Execute query in background and update job status
    */
-    async executeQueryBackground(jobId, databaseId, sql, timeoutMs) {
+  async executeQueryBackground(jobId, databaseId, sql, timeoutMs) {
     const jobStore = getJobStore();
     const job = jobStore.get(jobId);
 
@@ -270,12 +271,12 @@ export class SqlHandler {
 
       logger.error(`Query job ${jobId} failed: ${error.message}`);
     }
-    }
+  }
 
   /**
    * Check status of an async query
    */
-    async handleSQLStatus(args) {
+  async handleSQLStatus(args) {
     try {
       const jobStore = getJobStore();
       const job = jobStore.get(args.job_id);
@@ -340,12 +341,12 @@ export class SqlHandler {
         content: [{ type: 'text', text: `❌ Failed to check status: ${error.message}` }],
       };
     }
-    }
+  }
 
   /**
    * Cancel a running async query
    */
-    async handleSQLCancel(args) {
+  async handleSQLCancel(args) {
     try {
       const jobStore = getJobStore();
       const job = jobStore.get(args.job_id);
@@ -386,5 +387,173 @@ export class SqlHandler {
         content: [{ type: 'text', text: `❌ Failed to cancel: ${error.message}` }],
       };
     }
+  }
+
+
+  async handleGetDatabases() {
+
+    // Use cache for database list
+    const cacheKey = CacheKeys.databases();
+    const cached = await this.cache.getOrSet(cacheKey, async () => {
+      const response = await this.metabaseClient.getDatabases();
+      return response.data || response;
+    });
+
+    const databases = cached.data;
+    const source = cached.source;
+
+    // Log cache status
+    if (source === 'cache') {
+      logger.debug('Databases fetched from cache');
     }
+
+    // Use response optimizer for compact output
+    const optimizedResponse = formatListResponse(
+      '📊 Available Databases',
+      databases,
+      minimalDatabase,
+      { format: ResponseFormat.COMPACT }
+    );
+
+    // If optimization returned a result, use it; otherwise fall back to standard format
+    if (optimizedResponse) {
+      // Add cache indicator
+      optimizedResponse.content[0].text += source === 'cache' ? '\\n\\n_📦 From cache_' : '';
+      return optimizedResponse;
+    }
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Found ${databases.length} databases:\\n${databases
+            .map(db => `- ${db.name} (${db.engine}) - ID: ${db.id}`)
+            .join('\\n')}${source === 'cache' ? '\\n\\n_📦 From cache_' : ''}`,
+        },
+      ],
+    };
+  }
+
+
+  async handleGetDatabaseSchemas(args) {
+
+    const response = await this.metabaseClient.getDatabaseSchemas(args.database_id || args);
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Database Schemas:\n${JSON.stringify(response, null, 2)}`,
+        },
+      ],
+    };
+  }
+
+
+  async handleGetDatabaseTables(args) {
+
+    const response = await this.metabaseClient.getDatabaseTables(args.database_id || args);
+    const tables = response.tables || response.data || response; // Handle multiple formats
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Found ${tables.length} tables:\\n${tables
+            .map(table => `- ${table.name} (${table.fields?.length || 0} fields)`)
+            .join('\\n')}`,
+        },
+      ],
+    };
+  }
+
+
+  async handleGenerateSQL(args) {
+    if (!this.aiAssistant) {
+      throw new Error('AI assistant not configured. Please set ANTHROPIC_API_KEY or OPENAI_API_KEY.');
+    }
+
+    const { description, database_id } = args;
+    const tables = await this.metabaseClient.getDatabaseTables(database_id);
+    const sql = await this.aiAssistant.generateSQL(description, tables);
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Generated SQL for: "${description}"\\n\\n\`\`\`sql\\n${sql}\\n\`\`\``,
+        },
+      ],
+    };
+  }
+
+
+  async handleOptimizeQuery(args) {
+    if (!this.aiAssistant) {
+      throw new Error('AI assistant not configured. Please set ANTHROPIC_API_KEY or OPENAI_API_KEY.');
+    }
+
+    const optimization = await this.aiAssistant.optimizeQuery(args.sql);
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Optimized SQL:\\n\\n\`\`\`sql\\n${optimization.optimized_sql}\\n\`\`\`\\n\\nOptimizations applied:\\n${optimization.optimizations?.join('\\n- ') || 'None'}\\n\\nExpected improvements:\\n${optimization.improvements || 'Not specified'}`,
+        },
+      ],
+    };
+  }
+
+
+  async handleExplainQuery(args) {
+    if (!this.aiAssistant) {
+      throw new Error('AI assistant not configured. Please set ANTHROPIC_API_KEY or OPENAI_API_KEY.');
+    }
+
+    const explanation = await this.aiAssistant.explainQuery(args.sql);
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: `Query Explanation:\\n\\n${explanation}`,
+        },
+      ],
+    };
+  }
+
+    async handleTestConnectionSpeed(args) {
+        const databaseId = args.database_id;
+        const startTime = Date.now();
+        
+        try {
+            await this.metabaseClient.executeNativeQuery(databaseId, 'SELECT 1');
+            const responseTime = Date.now() - startTime;
+            
+            let speedLabel = 'Fast';
+            if (responseTime > 5000) speedLabel = 'Slow';
+            else if (responseTime > 2000) speedLabel = 'Moderate';
+            else if (responseTime > 500) speedLabel = 'Good';
+            
+            return {
+                content: [{
+                    type: 'text',
+                    text: `🏎️ **Database Speed Test**\n\n` +
+                        `📊 Database ID: ${databaseId}\n` +
+                        `⏱️ Response Time: ${responseTime}ms\n` +
+                        `📈 Rating: ${speedLabel}\n\n` +
+                        `💡 Recommended timeout: ${Math.max(responseTime * 10, 30000)}ms`
+                }],
+            };
+        } catch (error) {
+            return {
+                content: [{
+                    type: 'text',
+                    text: `❌ Speed test failed: ${error.message}`
+                }],
+            };
+        }
+    }
+
 }
