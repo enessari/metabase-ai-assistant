@@ -15,12 +15,14 @@ export class CacheManager {
      */
     constructor(options = {}) {
         this.ttl = options.ttl || 600000; // 10 minutes default
+        this.maxSize = options.maxSize || 500; // Max entries
         this.cache = new Map();
         this.stats = {
             hits: 0,
             misses: 0,
             sets: 0,
-            clears: 0
+            clears: 0,
+            evictions: 0
         };
     }
 
@@ -56,6 +58,13 @@ export class CacheManager {
      * @param {any} data - Data to cache
      */
     set(key, data) {
+        // Evict oldest entries if at capacity
+        if (this.cache.size >= this.maxSize && !this.cache.has(key)) {
+            const oldestKey = this.cache.keys().next().value;
+            this.cache.delete(oldestKey);
+            this.stats.evictions++;
+            logger.debug(`Cache evicted (maxSize): ${oldestKey}`);
+        }
         this.cache.set(key, {
             data,
             timestamp: Date.now()
@@ -139,6 +148,7 @@ export class CacheManager {
         return {
             ...this.stats,
             size: this.cache.size,
+            maxSize: this.maxSize,
             hitRate: total > 0 ? (this.stats.hits / total * 100).toFixed(2) + '%' : 'N/A'
         };
     }

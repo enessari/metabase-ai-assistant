@@ -1,6 +1,7 @@
 import { McpError, ErrorCode, McpError as McpErrorSdk } from '@modelcontextprotocol/sdk/types.js';
 import { logger } from '../../utils/logger.js';
 import { config } from '../../utils/config.js';
+import { sanitizeNumber, sanitizeLikePattern, sanitizeString } from '../../utils/sql-sanitizer.js';
 
 /**
  * Handler for Advanced Metadata Operations
@@ -15,13 +16,8 @@ export class MetadataHandler {
      * Helper to get Internal DB ID with fallback
      */
     async getInternalDbId(providedId) {
-        // 1. Use provided ID if any
         if (providedId) return providedId;
-
-        // 2. Use Env Var
         if (config.METABASE_INTERNAL_DB_ID) return config.METABASE_INTERNAL_DB_ID;
-
-        // 3. Throw error (Auto-detect should be explicit tool call)
         throw new Error('Internal Database ID not configured. Use `meta_find_internal_db` to find it, or set METABASE_INTERNAL_DB_ID env var.');
     }
 
@@ -35,7 +31,6 @@ export class MetadataHandler {
 
             for (const db of databases) {
                 try {
-                    // Try to query a core table
                     await this.metabaseClient.executeNativeQuery(db.id, 'SELECT count(*) FROM report_card');
                     candidates.push({ id: db.id, name: db.name, engine: db.engine });
                 } catch (e) {
@@ -67,8 +62,8 @@ export class MetadataHandler {
      */
     async handleAuditLogs(args) {
         const dbId = await this.getInternalDbId(args.internal_db_id);
-        const days = args.days || 30;
-        const limit = args.limit || 50;
+        const days = sanitizeNumber(args.days || 30);
+        const limit = sanitizeNumber(args.limit || 50);
 
         const sql = `
       SELECT 
@@ -87,14 +82,12 @@ export class MetadataHandler {
       LIMIT ${limit}
     `;
 
-        // Re-use logic from sql_execute via client
         const result = await this.metabaseClient.executeNativeQuery(dbId, sql);
         const rows = result.data.rows || [];
 
         let output = `📊 **Audit Logs (Last ${days} days)**\n`;
         output += `Found ${rows.length} execution records (Top Slowest)\n\n`;
 
-        // Helper to format table
         if (rows.length > 0) {
             output += `| Card | Runner | Duration (ms) | Date | Error |\n`;
             output += `|---|---|---|---|---|\n`;
@@ -114,13 +107,12 @@ export class MetadataHandler {
      */
     async handleLineage(args) {
         const dbId = await this.getInternalDbId(args.internal_db_id);
-        const term = args.search_term;
+        const safeTerm = sanitizeLikePattern(args.search_term);
 
-        // 1. Find Questions using this table/field string in their query
         const sqlQuestions = `
       SELECT id, name, collection_id 
       FROM report_card 
-      WHERE dataset_query LIKE '%${term}%' 
+      WHERE dataset_query LIKE '%${safeTerm}%' 
       AND archived = false
       LIMIT 50
     `;
@@ -128,10 +120,9 @@ export class MetadataHandler {
         const resultQ = await this.metabaseClient.executeNativeQuery(dbId, sqlQuestions);
         const questions = resultQ.data.rows || [];
 
-        // 2. Find Dashboards using these questions (if any questions found)
         let dashboards = [];
         if (questions.length > 0) {
-            const qIds = questions.map(r => r[0]).join(',');
+            const qIds = questions.map(r => sanitizeNumber(r[0])).join(',');
             const sqlDash = `
         SELECT DISTINCT d.id, d.name 
         FROM report_dashboard d
@@ -143,7 +134,7 @@ export class MetadataHandler {
             dashboards = resultD.data.rows || [];
         }
 
-        let output = `🔗 **Lineage Analysis for:** \`${term}\`\n\n`;
+        let output = `🔗 **Lineage Analysis for:** \`${args.search_term}\`\n\n`;
 
         if (questions.length === 0) {
             output += `No direct dependencies found in active questions.\n`;
@@ -163,26 +154,26 @@ export class MetadataHandler {
      */
     async handleAdvancedSearch(args) {
         const dbId = await this.getInternalDbId(args.internal_db_id);
-        const query = args.query;
+        const safeQuery = sanitizeLikePattern(args.query);
 
         const sql = `
       SELECT id, name, 'Question' as type, description 
       FROM report_card 
-      WHERE name ILIKE '%${query}%' 
-         OR description ILIKE '%${query}%' 
-         OR dataset_query ILIKE '%${query}%'
+      WHERE name ILIKE '%${safeQuery}%' 
+         OR description ILIKE '%${safeQuery}%' 
+         OR dataset_query ILIKE '%${safeQuery}%'
       UNION ALL
       SELECT id, name, 'Dashboard' as type, description
       FROM report_dashboard
-      WHERE name ILIKE '%${query}%'
-         OR description ILIKE '%${query}%'
+      WHERE name ILIKE '%${safeQuery}%'
+         OR description ILIKE '%${safeQuery}%'
       LIMIT 20
     `;
 
         const result = await this.metabaseClient.executeNativeQuery(dbId, sql);
         const rows = result.data.rows || [];
 
-        let output = `🔍 **Advanced Search Results for:** \`${query}\`\n\n`;
+        let output = `🔍 **Advanced Search Results for:** \`${args.query}\`\n\n`;
         if (rows.length === 0) {
             output += "No results found.";
         } else {

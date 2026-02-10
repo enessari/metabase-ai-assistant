@@ -1,5 +1,6 @@
 import axios from 'axios';
 import { logger } from '../utils/logger.js';
+import { sanitizeNumber, sanitizeLikePattern } from '../utils/sql-sanitizer.js';
 
 export class MetabaseClient {
   constructor(config) {
@@ -115,7 +116,7 @@ export class MetabaseClient {
   async getDatabaseConnectionInfo(id) {
     await this.ensureAuthenticated();
 
-    // Önce gerçek credentials'ları MetabaseappDB'den al
+    // Try real credentials from MetabaseappDB first
     try {
       const realCredentials = await this.getRealCredentials(id);
       if (realCredentials) {
@@ -137,7 +138,7 @@ export class MetabaseClient {
       port: db.details?.port,
       dbname: db.details?.dbname || db.details?.db,
       user: db.details?.user,
-      password: db.details?.password,
+      password: db.details?.password ? '***REDACTED***' : null,
       ssl: db.details?.ssl,
       additional_options: db.details?.['additional-options'],
       tunnel_enabled: db.details?.['tunnel-enabled'],
@@ -146,10 +147,11 @@ export class MetabaseClient {
   }
 
   async getRealCredentials(databaseId) {
+    const safeDbId = sanitizeNumber(databaseId);
     const query = `
       SELECT name, engine, details
       FROM metabase_database 
-      WHERE id = ${databaseId}
+      WHERE id = ${safeDbId}
     `;
 
     const result = await this.executeNativeQuery(6, query, { enforcePrefix: false }); // MetabaseappDB
@@ -166,7 +168,7 @@ export class MetabaseClient {
         port: detailsObj.port,
         dbname: detailsObj.dbname,
         user: detailsObj.user,
-        password: detailsObj.password,
+        password: detailsObj.password ? '***REDACTED***' : null,
         ssl: detailsObj.ssl || false,
         additional_options: detailsObj['additional-options'],
         tunnel_enabled: detailsObj['tunnel-enabled'] || false
@@ -181,9 +183,9 @@ export class MetabaseClient {
 
     switch (db.engine) {
       case 'postgres':
-        return `postgresql://${details.user}:${details.password}@${details.host}:${details.port}/${details.dbname}`;
+        return `postgresql://${details.user}:***@${details.host}:${details.port}/${details.dbname}`;
       case 'mysql':
-        return `mysql://${details.user}:${details.password}@${details.host}:${details.port}/${details.dbname}`;
+        return `mysql://${details.user}:***@${details.host}:${details.port}/${details.dbname}`;
       case 'h2':
         return details.db;
       default:
@@ -404,11 +406,11 @@ export class MetabaseClient {
    */
   async cancelPostgresQuery(databaseId, queryMarker) {
     try {
-      // Find and cancel queries containing the marker
+      const safeMarker = sanitizeLikePattern(queryMarker);
       const cancelSql = `
         SELECT pg_cancel_backend(pid)
         FROM pg_stat_activity
-        WHERE query LIKE '%${queryMarker}%'
+        WHERE query LIKE '%${safeMarker}%'
           AND state = 'active'
           AND pid != pg_backend_pid()
       `;
@@ -693,8 +695,30 @@ export class MetabaseClient {
 
   // Helper Methods
   async ensureAuthenticated() {
+    // API key mode: always set, no expiry
+    if (this.apiKey) return;
+
+    // Session token mode: check if set
     if (!this.sessionToken) {
       await this.authenticate();
+    }
+  }
+
+  /**
+   * Retry a request on 401 (session expired)
+   * Re-authenticates and retries once
+   */
+  async requestWithRetry(fn) {
+    try {
+      return await fn();
+    } catch (error) {
+      if (error.response?.status === 401 && !this.apiKey) {
+        logger.warn('Session expired, re-authenticating...');
+        this.sessionToken = null;
+        await this.authenticate();
+        return await fn();
+      }
+      throw error;
     }
   }
 
