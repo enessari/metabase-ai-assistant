@@ -15,7 +15,7 @@
 [![Claude](https://img.shields.io/badge/Claude-Ready-orange.svg?style=flat-square)](https://claude.ai)
 [![Cursor](https://img.shields.io/badge/Cursor-Ready-green.svg?style=flat-square)](https://cursor.sh)
 [![Node.js](https://img.shields.io/badge/Node.js-18+-brightgreen.svg?style=flat-square&logo=node.js)](https://nodejs.org/)
-
+[![MCP Badge](https://lobehub.com/badge/mcp/onmartech-metabase-ai-assistant)](https://lobehub.com/mcp/onmartech-metabase-ai-assistant)
 ---
 
 **Turn your AI assistant into a Metabase power user.**  
