@@ -1,0 +1,35 @@
+# Sensitive files
+.mcpregistry_github_token
+.npmrc
+.env
+.env.*
+
+# Development files
+.git
+.github
+.agent
+.gemini
+.vscode
+*.md
+!README.md
+!README_MCP.md
+!LICENSE
+
+# Test files
+*.test.*
+__tests__
+coverage
+
+# Build artifacts
+*.tgz
+*.dxt
+*.mcpb
+
+# Misc
+.DS_Store
+.eslintrc*
+.prettierrc*
+server.json
+ecosystem.config.js
+docker-compose.yml
+Dockerfile

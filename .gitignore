@@ -68,3 +68,5 @@ logs/
 .mcpregistry_*
 mcp-publisher
 .npmrc
+*.dxt
+*.mcpb

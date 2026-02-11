@@ -1,0 +1,89 @@
+{
+    "dxt_version": "0.3",
+    "name": "metabase-ai-assistant",
+    "display_name": "Metabase AI Assistant",
+    "version": "4.2.0",
+    "description": "The most powerful MCP Server for Metabase — 134 tools with AI-powered SQL generation, dashboard automation, user management & enterprise BI.",
+    "long_description": "Connect Claude to your Metabase instance with 134 specialized tools.\n\n**Features:**\n- SQL execution & AI-powered generation\n- Dashboard creation & automation\n- Schema exploration & relationship detection\n- User & permission management\n- Query performance analytics\n- Collection & bookmark management\n- Embedding & visualization controls\n- Export/import workspace migration\n\nRequires a running Metabase instance with API access.",
+    "author": {
+        "name": "ONMARTECH LLC",
+        "email": "contact@onmartech.com",
+        "url": "https://github.com/enessari/metabase-ai-assistant"
+    },
+    "license": "Apache-2.0",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/enessari/metabase-ai-assistant.git"
+    },
+    "server": {
+        "type": "node",
+        "entry_point": "src/mcp/server.js",
+        "mcp_config": {
+            "command": "node",
+            "args": [
+                "${__dirname}/src/mcp/server.js"
+            ],
+            "env": {
+                "METABASE_URL": "${user_config.metabase_url}",
+                "METABASE_API_KEY": "${user_config.metabase_api_key}",
+                "METABASE_USERNAME": "${user_config.metabase_username}",
+                "METABASE_PASSWORD": "${user_config.metabase_password}",
+                "METABASE_READ_ONLY_MODE": "${user_config.read_only_mode}",
+                "METABASE_INTERNAL_DB_ID": "${user_config.internal_db_id}",
+                "MB_METADATA_ENABLED": "${user_config.metadata_enabled}"
+            }
+        }
+    },
+    "compatibility": {
+        "runtimes": {
+            "node": ">=18.0.0"
+        }
+    },
+    "user_config": {
+        "metabase_url": {
+            "type": "string",
+            "title": "Metabase URL",
+            "description": "Your Metabase instance URL (e.g., https://metabase.example.com)",
+            "required": true
+        },
+        "metabase_api_key": {
+            "type": "string",
+            "title": "Metabase API Key",
+            "description": "API Key for authentication (recommended). Generate from Metabase Admin > Settings > API Keys",
+            "sensitive": true,
+            "required": false
+        },
+        "metabase_username": {
+            "type": "string",
+            "title": "Metabase Username (Email)",
+            "description": "Email for username/password auth (used if API Key is not set)",
+            "required": false
+        },
+        "metabase_password": {
+            "type": "string",
+            "title": "Metabase Password",
+            "description": "Password for username/password auth",
+            "sensitive": true,
+            "required": false
+        },
+        "read_only_mode": {
+            "type": "boolean",
+            "title": "Read-Only Mode",
+            "description": "Restrict to read-only operations (recommended for safety)",
+            "default": true
+        },
+        "internal_db_id": {
+            "type": "number",
+            "title": "Internal Database ID",
+            "description": "Metabase Application DB ID for advanced analytics (use meta_find_internal_db tool to discover)",
+            "required": false
+        },
+        "metadata_enabled": {
+            "type": "boolean",
+            "title": "Enable Metadata Analytics",
+            "description": "Enable advanced metadata analytics tools (requires Internal Database ID)",
+            "default": false
+        }
+    },
+    "tools": []
+}
