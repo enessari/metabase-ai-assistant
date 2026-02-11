@@ -156,6 +156,13 @@ export class SqlHandler {
             text: output,
           },
         ],
+        structuredContent: {
+          columns: columns.map(c => ({ name: c.name, base_type: c.base_type || c.type || 'unknown' })),
+          rows: rows.slice(0, fullResults ? rows.length : 200),
+          row_count: rows.length,
+          execution_time_ms: executionTime,
+          truncated: rows.length > 200 && !fullResults,
+        },
       };
 
     } catch (err) {
@@ -334,6 +341,20 @@ export class SqlHandler {
 
       return {
         content: [{ type: 'text', text: output }],
+        structuredContent: {
+          job_id: job.id,
+          status: job.status,
+          submitted_at: job.submittedAt || null,
+          elapsed_seconds: elapsedSeconds,
+          ...(job.status === 'complete' && job.result ? {
+            result: {
+              columns: (job.result.data?.cols || []).map(c => ({ name: c.name })),
+              rows: (job.result.data?.rows || []).slice(0, 200),
+              row_count: (job.result.data?.rows || []).length,
+            }
+          } : {}),
+          ...(job.error ? { error: job.error } : {}),
+        },
       };
 
     } catch (error) {
@@ -415,10 +436,17 @@ export class SqlHandler {
       { format: ResponseFormat.COMPACT }
     );
 
+    // Structured content for all paths
+    const structuredContent = {
+      databases: databases.map(db => ({ id: db.id, name: db.name, engine: db.engine })),
+      source: source,
+    };
+
     // If optimization returned a result, use it; otherwise fall back to standard format
     if (optimizedResponse) {
       // Add cache indicator
       optimizedResponse.content[0].text += source === 'cache' ? '\\n\\n_📦 From cache_' : '';
+      optimizedResponse.structuredContent = structuredContent;
       return optimizedResponse;
     }
 
@@ -431,6 +459,7 @@ export class SqlHandler {
             .join('\\n')}${source === 'cache' ? '\\n\\n_📦 From cache_' : ''}`,
         },
       ],
+      structuredContent,
     };
   }
 
@@ -439,13 +468,18 @@ export class SqlHandler {
 
     const response = await this.metabaseClient.getDatabaseSchemas(args.database_id || args);
 
+    const schemas = Array.isArray(response) ? response : (response.data || []);
     return {
       content: [
         {
           type: 'text',
-          text: `Database Schemas:\n${JSON.stringify(response, null, 2)}`,
+          text: `Database Schemas:\n${JSON.stringify(schemas, null, 2)}`,
         },
       ],
+      structuredContent: {
+        database_id: args.database_id || args,
+        schemas: schemas,
+      },
     };
   }
 
@@ -464,6 +498,10 @@ export class SqlHandler {
             .join('\\n')}`,
         },
       ],
+      structuredContent: {
+        database_id: args.database_id || args,
+        tables: tables.map(t => ({ id: t.id, name: t.name, schema: t.schema || 'public' })),
+      },
     };
   }
 
@@ -523,37 +561,43 @@ export class SqlHandler {
     };
   }
 
-    async handleTestConnectionSpeed(args) {
-        const databaseId = args.database_id;
-        const startTime = Date.now();
-        
-        try {
-            await this.metabaseClient.executeNativeQuery(databaseId, 'SELECT 1');
-            const responseTime = Date.now() - startTime;
-            
-            let speedLabel = 'Fast';
-            if (responseTime > 5000) speedLabel = 'Slow';
-            else if (responseTime > 2000) speedLabel = 'Moderate';
-            else if (responseTime > 500) speedLabel = 'Good';
-            
-            return {
-                content: [{
-                    type: 'text',
-                    text: `🏎️ **Database Speed Test**\n\n` +
-                        `📊 Database ID: ${databaseId}\n` +
-                        `⏱️ Response Time: ${responseTime}ms\n` +
-                        `📈 Rating: ${speedLabel}\n\n` +
-                        `💡 Recommended timeout: ${Math.max(responseTime * 10, 30000)}ms`
-                }],
-            };
-        } catch (error) {
-            return {
-                content: [{
-                    type: 'text',
-                    text: `❌ Speed test failed: ${error.message}`
-                }],
-            };
-        }
+  async handleTestConnectionSpeed(args) {
+    const databaseId = args.database_id;
+    const startTime = Date.now();
+
+    try {
+      await this.metabaseClient.executeNativeQuery(databaseId, 'SELECT 1');
+      const responseTime = Date.now() - startTime;
+
+      let speedLabel = 'Fast';
+      if (responseTime > 5000) speedLabel = 'Slow';
+      else if (responseTime > 2000) speedLabel = 'Moderate';
+      else if (responseTime > 500) speedLabel = 'Good';
+
+      return {
+        content: [{
+          type: 'text',
+          text: `🏎️ **Database Speed Test**\n\n` +
+            `📊 Database ID: ${databaseId}\n` +
+            `⏱️ Response Time: ${responseTime}ms\n` +
+            `📈 Rating: ${speedLabel}\n\n` +
+            `💡 Recommended timeout: ${Math.max(responseTime * 10, 30000)}ms`
+        }],
+        structuredContent: {
+          database_id: databaseId,
+          latency_ms: responseTime,
+          status: speedLabel,
+          details: { recommended_timeout_ms: Math.max(responseTime * 10, 30000) },
+        },
+      };
+    } catch (error) {
+      return {
+        content: [{
+          type: 'text',
+          text: `❌ Speed test failed: ${error.message}`
+        }],
+      };
     }
+  }
 
 }

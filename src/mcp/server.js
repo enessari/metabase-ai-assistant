@@ -53,11 +53,12 @@ class MetabaseMCPServer {
     this.server = new Server(
       {
         name: 'metabase-ai-assistant',
-        version: '4.0.0',
+        version: '4.1.0',
+        description: 'AI-powered database operations, SQL queries, metrics, and dashboard automation for Metabase. 134 tools with structured output for enterprise BI.',
       },
       {
         capabilities: {
-          tools: {},
+          tools: { listChanged: true },
         },
       }
     );

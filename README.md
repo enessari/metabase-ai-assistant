@@ -4,7 +4,7 @@
 
 ### **The Most Powerful MCP Server for Metabase**
 
-**111+ Tools** • **AI-Powered SQL** • **Enterprise Security** • **Zero Config**
+**134 Tools** • **MCP SDK v1.26.0** • **AI-Powered SQL** • **Structured Output** • **Enterprise Security**
 
 [![npm version](https://img.shields.io/npm/v/metabase-ai-assistant.svg?style=for-the-badge&logo=npm)](https://www.npmjs.com/package/metabase-ai-assistant)
 [![npm downloads](https://img.shields.io/npm/dm/metabase-ai-assistant.svg?style=for-the-badge&logo=npm)](https://www.npmjs.com/package/metabase-ai-assistant)
@@ -33,7 +33,7 @@ Generate SQL from natural language, create dashboards, manage users, and automat
 
 | Feature | **This Project** | Other MCP Servers |
 |---------|:----------------:|:-----------------:|
-| **Total Tools** | **111+** ✅ | 6-30 |
+| **Total Tools** | **134** ✅ | 6-30 |
 | **AI SQL Generation** | ✅ | ❌ |
 | **AI SQL Optimization** | ✅ | ❌ |
 | **Dashboard Templates** | ✅ | ❌ |
@@ -45,6 +45,8 @@ Generate SQL from natural language, create dashboards, manage users, and automat
 | **Metadata Analytics** | ✅ | ❌ |
 | **Parametric Questions** | ✅ | ❌ |
 | **Environment Comparison** | ✅ | ❌ |
+| **Structured Output (JSON)** | ✅ | ❌ |
+| **Tool Annotations** | ✅ | ❌ |
 
 ---
 
@@ -109,7 +111,9 @@ AI: 🔒 Blocked - Read-only mode active
 
 ---
 
-## 🔧 Complete Tool List (111+)
+## 🔧 Complete Tool List (134)
+
+> 🆕 All tools include MCP annotations and `title`. 16 priority tools support `outputSchema` + `structuredContent` for typed JSON responses.
 
 <details>
 <summary><b>📊 Database Operations (25 tools)</b></summary>
@@ -299,18 +303,17 @@ npm run mcp
 metabase-ai-assistant/
 ├── src/
 │   ├── mcp/
-│   │   ├── server.js          # Main MCP server (111+ tools)
-│   │   └── handlers/          # Modular handlers
-│   │       ├── database.js    # DB operations
-│   │       ├── dashboard.js   # Dashboard ops
-│   │       ├── questions.js   # Question ops
-│   │       └── ai.js          # AI features
+│   │   ├── server.js              # MCP Server entry point
+│   │   ├── tool-registry.js       # 134 tool definitions + annotations + outputSchema
+│   │   ├── tool-router.js         # Dynamic routing with read-only gate
+│   │   └── handlers/              # 15 modular handler files
 │   ├── utils/
-│   │   ├── cache.js           # TTL-based caching
-│   │   ├── config.js          # Zod validation
-│   │   └── response-optimizer.js
+│   │   ├── structured-response.js # Structured output (MCP 2025-06-18)
+│   │   ├── cache.js               # TTL-based caching
+│   │   ├── config.js              # Zod validation
+│   │   └── response-optimizer.js  # Compact response formatting
 │   └── metabase/
-│       └── client.js          # Metabase API client
+│       └── client.js              # Metabase API client
 ```
 
 ---

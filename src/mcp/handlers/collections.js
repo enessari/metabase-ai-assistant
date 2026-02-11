@@ -2,20 +2,20 @@ import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { logger } from '../../utils/logger.js';
 
 export class CollectionsHandler {
-    constructor(metabaseClient) {
-        this.metabaseClient = metabaseClient;
-    }
+  constructor(metabaseClient) {
+    this.metabaseClient = metabaseClient;
+  }
 
-    routes() {
-        return {
-            'mb_collection_create': (args) => this.handleCollectionCreate(args),
-            'mb_collection_list': (args) => this.handleCollectionList(args),
-            'mb_collection_move': (args) => this.handleCollectionMove(args),
-            'mb_collection_copy': (args) => this.handleCollectionCopy(args),
-            'mb_collection_permissions_get': (args) => this.handleCollectionPermissionsGet(args),
-            'mb_collection_permissions_update': (args) => this.handleCollectionPermissionsUpdate(args),
-        };
-    }
+  routes() {
+    return {
+      'mb_collection_create': (args) => this.handleCollectionCreate(args),
+      'mb_collection_list': (args) => this.handleCollectionList(args),
+      'mb_collection_move': (args) => this.handleCollectionMove(args),
+      'mb_collection_copy': (args) => this.handleCollectionCopy(args),
+      'mb_collection_permissions_get': (args) => this.handleCollectionPermissionsGet(args),
+      'mb_collection_permissions_update': (args) => this.handleCollectionPermissionsUpdate(args),
+    };
+  }
 
   async handleCollectionCreate(args) {
     try {
@@ -82,7 +82,11 @@ export class CollectionsHandler {
       output += `\\n📊 Total Collections: ${collections.length}`;
 
       return {
-        content: [{ type: 'text', text: output }]
+        content: [{ type: 'text', text: output }],
+        structuredContent: {
+          collections: rootCollections.map(c => ({ id: c.id, name: c.name })),
+          count: collections.length,
+        },
       };
 
     } catch (error) {

@@ -2,24 +2,24 @@ import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { logger } from '../../utils/logger.js';
 
 export class UsersHandler {
-    constructor(metabaseClient) {
-        this.metabaseClient = metabaseClient;
-    }
+  constructor(metabaseClient) {
+    this.metabaseClient = metabaseClient;
+  }
 
-    routes() {
-        return {
-            'mb_user_list': (args) => this.handleUserList(args),
-            'mb_user_get': (args) => this.handleUserGet(args),
-            'mb_user_create': (args) => this.handleUserCreate(args),
-            'mb_user_update': (args) => this.handleUserUpdate(args),
-            'mb_user_disable': (args) => this.handleUserDisable(args),
-            'mb_permission_group_list': (args) => this.handlePermissionGroupList(args),
-            'mb_permission_group_create': (args) => this.handlePermissionGroupCreate(args),
-            'mb_permission_group_delete': (args) => this.handlePermissionGroupDelete(args),
-            'mb_permission_group_add_user': (args) => this.handlePermissionGroupAddUser(args),
-            'mb_permission_group_remove_user': (args) => this.handlePermissionGroupRemoveUser(args),
-        };
-    }
+  routes() {
+    return {
+      'mb_user_list': (args) => this.handleUserList(args),
+      'mb_user_get': (args) => this.handleUserGet(args),
+      'mb_user_create': (args) => this.handleUserCreate(args),
+      'mb_user_update': (args) => this.handleUserUpdate(args),
+      'mb_user_disable': (args) => this.handleUserDisable(args),
+      'mb_permission_group_list': (args) => this.handlePermissionGroupList(args),
+      'mb_permission_group_create': (args) => this.handlePermissionGroupCreate(args),
+      'mb_permission_group_delete': (args) => this.handlePermissionGroupDelete(args),
+      'mb_permission_group_add_user': (args) => this.handlePermissionGroupAddUser(args),
+      'mb_permission_group_remove_user': (args) => this.handlePermissionGroupRemoveUser(args),
+    };
+  }
 
   async handleUserList(args) {
     await this.ensureInitialized();
@@ -47,7 +47,15 @@ export class UsersHandler {
           text: `Found ${users.length} users:\n${users.map(u =>
             `  - [${u.id}] ${u.first_name} ${u.last_name} (${u.email}) - ${u.is_active ? 'Active' : 'Inactive'}${u.is_superuser ? ' [Admin]' : ''}`
           ).join('\n')}`
-        }]
+        }],
+        structuredContent: {
+          users: users.map(u => ({
+            id: u.id, email: u.email,
+            first_name: u.first_name, last_name: u.last_name,
+            is_active: u.is_active,
+          })),
+          count: users.length,
+        },
       };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ User list error: ${error.message}` }] };

@@ -45,7 +45,9 @@ After updating the configuration file, restart your MCP client to load the new s
 
 ---
 
-## Available Tools (111 Total)
+## Available Tools (134 Total)
+
+> 🆕 **MCP SDK v1.26.0** — All tools include annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`) and human-readable `title`. 16 priority tools support `outputSchema` + `structuredContent` for typed JSON responses.
 
 ### Database Operations
 - **db_list**: List all databases in Metabase
@@ -180,6 +182,10 @@ After updating the configuration file, restart your MCP client to load the new s
 ## Features Summary
 
 ### Currently Available
+- **MCP SDK v1.26.0** (Spec 2025-11-25 compliant)
+- **Structured Output** (`outputSchema` + `structuredContent` for 16 tools)
+- **Tool Annotations** (`readOnlyHint`, `destructiveHint`, `idempotentHint`)
+- **Dynamic Tool List** (`listChanged` capability)
 - **Async Query Management** (for long-running queries)
 - **Smart Response Optimization** (no truncation for DDL/definitions)
 - **Table Profiling** (dim/ref table detection)

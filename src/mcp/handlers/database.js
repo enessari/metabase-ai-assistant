@@ -268,6 +268,12 @@ export async function handleTestDatabaseSpeed(databaseId, context) {
                             : '• Database is performing well'),
                 },
             ],
+            structuredContent: {
+                database_id: databaseId,
+                latency_ms: latency,
+                status: speedRating,
+                details: { emoji },
+            },
         };
     } catch (err) {
         return {
@@ -307,6 +313,16 @@ export async function handleGetConnectionInfo(databaseId, context) {
                     `• Tables: ${db.tables?.length || 0}`,
             },
         ],
+        structuredContent: {
+            id: db.id,
+            name: db.name,
+            engine: db.engine,
+            details: {
+                native_permissions: db.native_permissions,
+                auto_run_queries: db.auto_run_queries,
+                tables_count: db.tables?.length || 0,
+            },
+        },
     };
 }
 
