@@ -53,7 +53,7 @@ class MetabaseMCPServer {
     this.server = new Server(
       {
         name: 'metabase-ai-assistant',
-        version: '4.1.0',
+        version: '4.2.0',
         description: 'AI-powered database operations, SQL queries, metrics, and dashboard automation for Metabase. 134 tools with structured output for enterprise BI.',
       },
       {
@@ -121,25 +121,20 @@ class MetabaseMCPServer {
       });
       logger.info('Activity logger initialized');
 
-      // Metadata client (optional)
-      if (process.env.MB_METADATA_ENABLED === 'true') {
-        this.metadataClient = new MetabaseMetadataClient({
-          engine: process.env.MB_METADATA_ENGINE || 'postgres',
-          host: process.env.MB_METADATA_HOST,
-          port: parseInt(process.env.MB_METADATA_PORT) || 5432,
-          database: process.env.MB_METADATA_DATABASE,
-          user: process.env.MB_METADATA_USER,
-          password: process.env.MB_METADATA_PASSWORD,
-          ssl: process.env.MB_METADATA_SSL === 'true'
-        });
-
+      // Metadata client (optional - uses Metabase API, no direct DB connection needed)
+      if (process.env.MB_METADATA_ENABLED === 'true' && appConfig.METABASE_INTERNAL_DB_ID) {
         try {
-          await this.metadataClient.connect();
-          logger.info('Metabase metadata client initialized');
+          this.metadataClient = new MetabaseMetadataClient({
+            metabaseClient: this.metabaseClient,
+            internalDbId: appConfig.METABASE_INTERNAL_DB_ID
+          });
+          logger.info(`Metabase metadata client initialized (DB ID: ${appConfig.METABASE_INTERNAL_DB_ID})`);
         } catch (error) {
-          logger.warn('Metadata client connection failed:', error.message);
+          logger.warn('Metadata client initialization failed:', error.message);
           this.metadataClient = null;
         }
+      } else if (process.env.MB_METADATA_ENABLED === 'true' && !appConfig.METABASE_INTERNAL_DB_ID) {
+        logger.warn('MB_METADATA_ENABLED=true but METABASE_INTERNAL_DB_ID is not set. Use meta_find_internal_db tool to find it.');
       }
 
       // Modular handlers (initialized after all deps are ready)

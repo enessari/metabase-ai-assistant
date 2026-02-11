@@ -1,112 +1,40 @@
-import { Client } from 'pg';
-import mysql from 'mysql2/promise';
 import { logger } from '../utils/logger.js';
 
 /**
  * Metabase Metadata Database Client
  *
- * Connects to Metabase's application database to query metadata, analytics,
- * and usage statistics. This client is READ-ONLY for security.
+ * Queries Metabase's application database via the Metabase API
+ * using executeNativeQuery. This eliminates the need for direct
+ * database credentials — only METABASE_INTERNAL_DB_ID is required.
+ *
+ * This client is READ-ONLY for security.
  *
  * Based on: Metabase Internal Database Reference Guide (ONMARTECH LLC)
  */
 export class MetabaseMetadataClient {
   constructor(config) {
+    this.metabaseClient = config.metabaseClient;
+    this.internalDbId = config.internalDbId;
     this.config = {
-      engine: config.engine || 'postgres',
-      host: config.host,
-      port: config.port,
-      database: config.database,
-      user: config.user,
-      password: config.password,
-      ssl: config.ssl || false
+      engine: 'api',
+      database: `internal-db-${config.internalDbId}`
     };
-    this.client = null;
-    this.connected = false;
-  }
 
-  /**
-   * Connect to Metabase application database
-   */
-  async connect() {
-    try {
-      if (this.connected) {
-        return true;
-      }
-
-      switch (this.config.engine) {
-        case 'postgres':
-          this.client = new Client({
-            host: this.config.host,
-            port: this.config.port || 5432,
-            database: this.config.database,
-            user: this.config.user,
-            password: this.config.password,
-            ssl: this.config.ssl,
-            // Read-only configuration
-            options: '-c default_transaction_read_only=on'
-          });
-          await this.client.connect();
-          break;
-
-        case 'mysql':
-          this.client = await mysql.createConnection({
-            host: this.config.host,
-            port: this.config.port || 3306,
-            database: this.config.database,
-            user: this.config.user,
-            password: this.config.password,
-            ssl: this.config.ssl
-          });
-          // Set read-only mode for MySQL
-          await this.client.query('SET SESSION TRANSACTION READ ONLY');
-          break;
-
-        case 'h2':
-          logger.warn('H2 database detected - limited support. Consider using PostgreSQL for production.');
-          throw new Error('H2 database not supported for metadata access. Please use PostgreSQL or MySQL.');
-
-        default:
-          throw new Error(`Unsupported database engine: ${this.config.engine}`);
-      }
-
-      this.connected = true;
-      logger.info(`Connected to Metabase metadata database (${this.config.engine}): ${this.config.database}`);
-      return true;
-    } catch (error) {
-      logger.error('Metabase metadata database connection failed:', error);
-      throw error;
+    if (!this.metabaseClient) {
+      throw new Error('MetabaseMetadataClient requires a metabaseClient instance');
     }
-  }
-
-  /**
-   * Disconnect from database
-   */
-  async disconnect() {
-    if (this.client) {
-      try {
-        if (this.config.engine === 'postgres') {
-          await this.client.end();
-        } else if (this.config.engine === 'mysql') {
-          await this.client.end();
-        }
-        this.connected = false;
-        this.client = null;
-        logger.info('Metabase metadata database connection closed');
-      } catch (error) {
-        logger.error('Error disconnecting from metadata database:', error);
-      }
+    if (!this.internalDbId) {
+      throw new Error('MetabaseMetadataClient requires internalDbId (METABASE_INTERNAL_DB_ID)');
     }
+
+    logger.info(`MetabaseMetadataClient initialized (API mode, DB ID: ${this.internalDbId})`);
   }
 
   /**
-   * Execute read-only query
+   * Execute read-only query via Metabase API
+   * Returns rows as array of objects (like pg client.query().rows)
    */
   async executeQuery(sql, params = []) {
-    if (!this.connected) {
-      await this.connect();
-    }
-
     try {
       // Security check - only SELECT queries allowed
       const sqlUpper = sql.trim().toUpperCase();
@@ -114,18 +42,26 @@ export class MetabaseMetadataClient {
         throw new Error('Only SELECT queries are allowed on metadata database');
       }
 
-      logger.debug('Executing metadata query:', { sql: sql.substring(0, 100) });
+      logger.debug('Executing metadata query via API:', { sql: sql.substring(0, 100) });
 
-      let result;
-      if (this.config.engine === 'postgres') {
-        result = await this.client.query(sql, params);
-        return result.rows;
-      } else if (this.config.engine === 'mysql') {
-        const [rows] = await this.client.query(sql, params);
-        return rows;
-      }
+      const result = await this.metabaseClient.executeNativeQuery(this.internalDbId, sql);
+
+      // Convert Metabase API response format to row-object format
+      // API returns: { data: { rows: [[v1,v2,...], ...], cols: [{name:'col1'}, ...] } }
+      // We need:     [{ col1: v1, col2: v2, ... }, ...]
+      const cols = result.data?.cols || [];
+      const rows = result.data?.rows || [];
+      const colNames = cols.map(c => c.name);
+
+      return rows.map(row => {
+        const obj = {};
+        colNames.forEach((name, i) => {
+          obj[name] = row[i];
+        });
+        return obj;
+      });
     } catch (error) {
-      logger.error('Metadata query execution failed:', { sql, error: error.message });
+      logger.error('Metadata query execution failed:', { sql: sql.substring(0, 200), error: error.message });
       throw error;
     }
   }
@@ -573,17 +509,16 @@ export class MetabaseMetadataClient {
   // ============================================
 
   /**
-   * Test connection to metadata database
+   * Test connection to metadata database via API
    */
   async testConnection() {
     try {
-      await this.connect();
       const result = await this.executeQuery('SELECT COUNT(*) as table_count FROM information_schema.tables WHERE table_schema = \'public\'');
-      await this.disconnect();
       return {
         success: true,
         database: this.config.database,
         engine: this.config.engine,
+        internal_db_id: this.internalDbId,
         table_count: result[0]?.table_count || 0
       };
     } catch (error) {
@@ -913,7 +848,7 @@ export class MetabaseMetadataClient {
       ...dependencies,
       impact_analysis: {
         severity: criticalQuestions.length > 0 || criticalDashboards.length > 0 ? 'HIGH' :
-                  dependencies.questions.length > 0 ? 'MEDIUM' : 'LOW',
+          dependencies.questions.length > 0 ? 'MEDIUM' : 'LOW',
         breaking_changes: {
           questions_will_break: dependencies.questions.length,
           dashboards_will_break: dependencies.dashboards.length,
@@ -1294,12 +1229,12 @@ export class MetabaseMetadataClient {
       error_count: parseInt(q.error_count),
       error_rate: parseFloat(q.error_rate),
       severity: parseFloat(q.error_rate) > 50 ? 'CRITICAL' :
-                parseFloat(q.error_rate) > 20 ? 'HIGH' : 'MEDIUM',
+        parseFloat(q.error_rate) > 20 ? 'HIGH' : 'MEDIUM',
       recommendation: parseFloat(q.error_rate) > 50
         ? 'CRITICAL: More than half of executions fail. Archive or fix immediately.'
         : parseFloat(q.error_rate) > 20
-        ? 'HIGH: Frequent failures. Prioritize fixing this question.'
-        : 'MEDIUM: Occasional failures. Monitor and investigate.'
+          ? 'HIGH: Frequent failures. Prioritize fixing this question.'
+          : 'MEDIUM: Occasional failures. Monitor and investigate.'
     }));
   }
 
@@ -1549,7 +1484,7 @@ export class MetabaseMetadataClient {
       impact.recommendations.push('✓ Set approved: true to execute import');
 
       impact.severity = impact.conflicts.length > 10 ? 'HIGH' :
-                        impact.conflicts.length > 0 ? 'MEDIUM' : 'LOW';
+        impact.conflicts.length > 0 ? 'MEDIUM' : 'LOW';
 
       return impact;
     } catch (error) {

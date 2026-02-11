@@ -42,16 +42,6 @@ const envSchema = z.object({
         .string()
         .default('false')
         .transform(val => val.toLowerCase() === 'true'),
-    MB_METADATA_ENGINE: z.enum(['postgres', 'mysql', 'h2']).default('postgres'),
-    MB_METADATA_HOST: z.string().optional(),
-    MB_METADATA_PORT: z.string().optional().transform(val => val ? parseInt(val, 10) : undefined),
-    MB_METADATA_DATABASE: z.string().optional(),
-    MB_METADATA_USER: z.string().optional(),
-    MB_METADATA_PASSWORD: z.string().optional(),
-    MB_METADATA_SSL: z
-        .string()
-        .default('false')
-        .transform(val => val.toLowerCase() === 'true'),
 
     // AI Configuration
     ANTHROPIC_API_KEY: z.string().optional(),
