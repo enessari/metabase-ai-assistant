@@ -5,6 +5,12 @@ export class ActionsHandler {
     constructor(metabaseClient) {
         this.metabaseClient = metabaseClient;
     }
+  // Handler-level init is a no-op; MetabaseMCPServer.ensureInitialized()
+  // runs in CallToolRequestSchema before dispatch (see src/mcp/server.js).
+  // Kept as an instance hook so callers like this.ensureInitialized() do not
+  // throw TypeError when invoked from individual handler methods.
+  async ensureInitialized() {}
+
 
     routes() {
         return {
