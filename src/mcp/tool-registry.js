@@ -3006,8 +3006,9 @@ export function getToolDefinitions() {
             description: 'Output format'
           },
           parameters: {
-            type: 'object',
-            description: 'Optional parameters for parametric questions'
+            type: 'array',
+            items: { type: 'object' },
+            description: 'Optional parameters for parametric questions. Array of {type, target, value} objects per Metabase REST API spec.'
           }
         },
         required: ['card_id']
