@@ -166,12 +166,14 @@ const TOOL_METADATA = {
   mb_card_get: {
     title: 'Get Card', outputSchema: {
       type: 'object',
+      additionalProperties: true,
       properties: {
         id: { type: 'number' }, name: { type: 'string' },
-        description: { type: 'string' }, display: { type: 'string' },
-        database_id: { type: 'number' }, collection_id: { type: 'number' },
+        description: { type: ['string', 'null'] }, display: { type: 'string' },
+        database_id: { type: 'number' }, collection_id: { type: ['number', 'null'] },
         archived: { type: 'boolean' },
-        created_at: { type: 'string' }, updated_at: { type: 'string' }
+        created_at: { type: 'string' }, updated_at: { type: 'string' },
+        dataset_query: { type: ['object', 'null'] }
       }, required: ['id', 'name', 'display']
     }
   },

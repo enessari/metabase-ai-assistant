@@ -110,13 +110,14 @@ export class CardsHandler {
         structuredContent: {
           id: card.id,
           name: card.name,
-          description: card.description || null,
+          description: card.description ?? null,
           display: card.display,
           database_id: card.database_id,
-          collection_id: card.collection_id || null,
+          collection_id: card.collection_id ?? null,
           archived: card.archived,
           created_at: card.created_at,
           updated_at: card.updated_at,
+          dataset_query: card.dataset_query ?? null,
         },
       };
     } catch (error) {
