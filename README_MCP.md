@@ -2,35 +2,6 @@
 
 This document explains how to integrate Metabase AI Assistant with MCP-compatible AI clients.
 
-**Author**: Abdullah Enes SARI
-**Company**: ONMARTECH LLC
-
----
-
-## Rama `fix/read-only-enforcement-and-card-query` (vs `main`)
-
-> Estamos optimizando este MCP para **apurarlo** — reducir latencia, respuestas más ligeras y mejor uso en clientes MCP con muchas herramientas. Los cambios de esta rama son el primer paso; el trabajo de performance continúa en curso.
-
-### Cambios respecto a `main`
-
-| Área | Antes (`main`) | Ahora (esta rama) |
-|------|----------------|-------------------|
-| **`mb_card_get` — `structuredContent`** | Metadatos básicos de la card (id, name, display, fechas, etc.) | Incluye **`dataset_query`** (SQL nativo o MBQL) para inspeccionar la pregunta sin llamadas extra |
-| **`mb_card_get` — `outputSchema`** | `description` y `collection_id` solo como string/number | Tipos **nullable** (`string \| null`, `number \| null`) alineados con datos reales de Metabase |
-| **`mb_card_get` — schema JSON** | Propiedades fijas | `additionalProperties: true` para campos extra sin romper validación |
-| **Handler `cards.js`** | `description \|\| null`, `collection_id \|\| null` | **`?? null`** — distingue valores vacíos de `null` real (importante en modo read-only) |
-
-### Por qué importa
-
-- **Read-only más útil**: con `dataset_query` en la respuesta estructurada, un agente puede leer el SQL/MBQL de una pregunta existente sin invocar herramientas de escritura ni parsear texto plano.
-- **Schemas más estrictos y correctos**: menos falsos positivos de validación cuando Metabase devuelve `null` en descripción o colección.
-- **Base para optimización**: respuestas tipadas y completas evitan round-trips adicionales al API de Metabase.
-
-### Archivos tocados
-
-- `src/mcp/handlers/cards.js` — `handleCardGet` expone `dataset_query`
-- `src/mcp/tool-registry.js` — `outputSchema` de `mb_card_get` actualizado
-
 ---
 
 ## Quick Start
@@ -73,7 +44,7 @@ After updating the configuration file, restart your MCP client to load the new s
 
 ## Available Tools (134 Total)
 
-> 🆕 **MCP SDK v1.26.0** — All tools include annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`) and human-readable `title`. 16 priority tools support `outputSchema` + `structuredContent` for typed JSON responses.
+MCP SDK v1.26.0 — tools include annotations (`readOnlyHint`, `destructiveHint`, `idempotentHint`) and human-readable `title`. 16 priority tools support `outputSchema` + `structuredContent`.
 
 ### Database Operations
 - **db_list**: List all databases in Metabase
@@ -94,7 +65,7 @@ After updating the configuration file, restart your MCP client to load the new s
 ### Question/Chart Operations
 - **mb_question_create**: Create new question/chart in Metabase
 - **mb_questions**: List existing questions
-- **mb_card_get**: Get card details (includes `dataset_query` in structured output on this branch)
+- **mb_card_get**: Get card details
 - **mb_card_update**: Update card properties
 - **mb_card_delete**: Delete card
 - **mb_card_data**: Get card result data
@@ -227,7 +198,6 @@ After updating the configuration file, restart your MCP client to load the new s
 - Activity logging
 
 ### Under Development
-- **Performance / speed** — optimización activa del MCP (respuestas más rápidas, menos round-trips, payloads más livianos)
 - Batch operations
 - Export/Import features
 - Real-time updates
@@ -305,8 +275,3 @@ After updating the configuration file, restart your MCP client to load the new s
 
 - [MCP Specification](https://modelcontextprotocol.io/)
 - [Metabase API Documentation](https://www.metabase.com/docs/latest/api-documentation.html)
-
----
-
-Copyright 2024-2026 ONMARTECH LLC
-Developed by Abdullah Enes SARI

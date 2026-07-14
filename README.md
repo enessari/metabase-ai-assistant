@@ -1,56 +1,25 @@
-<div align="center">
+# Metabase AI Assistant
 
-# 🚀 Metabase AI Assistant
+MCP server for Metabase: SQL execution, questions, dashboards, metadata, and AI-assisted queries. Compatible with Claude, Cursor, and other MCP clients.
 
-### **The Most Powerful MCP Server for Metabase**
+## Rama `fix/read-only-enforcement-and-card-query` (vs `main`)
 
-**134 Tools** • **MCP SDK v1.26.0** • **AI-Powered SQL** • **Structured Output** • **Enterprise Security**
+Estamos optimizando este MCP para **apurarlo** — menos latencia, respuestas más livianas y menos round-trips. Los cambios de esta rama son el primer paso; el trabajo de performance sigue en curso.
 
-[![npm version](https://img.shields.io/npm/v/metabase-ai-assistant.svg?style=for-the-badge&logo=npm)](https://www.npmjs.com/package/metabase-ai-assistant)
-[![npm downloads](https://img.shields.io/npm/dm/metabase-ai-assistant.svg?style=for-the-badge&logo=npm)](https://www.npmjs.com/package/metabase-ai-assistant)
-[![GitHub stars](https://img.shields.io/github/stars/enessari/metabase-ai-assistant?style=for-the-badge&logo=github)](https://github.com/enessari/metabase-ai-assistant/stargazers)
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=for-the-badge)](https://opensource.org/licenses/Apache-2.0)
+| Área | Antes (`main`) | Ahora (esta rama) |
+|------|----------------|-------------------|
+| **`mb_card_get` — `structuredContent`** | Metadatos básicos de la card | Incluye **`dataset_query`** (SQL nativo o MBQL) sin llamadas extra |
+| **`mb_card_get` — `outputSchema`** | `description` y `collection_id` solo como string/number | Tipos **nullable** alineados con Metabase |
+| **`mb_card_get` — schema JSON** | Propiedades fijas | `additionalProperties: true` |
+| **Handler `cards.js`** | `description \|\| null`, `collection_id \|\| null` | **`?? null`** para distinguir vacío de `null` real |
 
-[![MCP Compatible](https://img.shields.io/badge/MCP-Compatible-blueviolet.svg?style=flat-square&logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZmlsbD0id2hpdGUiIGQ9Ik0xMiAyTDIgN2wxMCA1IDEwLTV6Ii8+PC9zdmc+)](https://modelcontextprotocol.io/)
-[![Claude](https://img.shields.io/badge/Claude-Ready-orange.svg?style=flat-square)](https://claude.ai)
-[![Cursor](https://img.shields.io/badge/Cursor-Ready-green.svg?style=flat-square)](https://cursor.sh)
-[![Node.js](https://img.shields.io/badge/Node.js-18+-brightgreen.svg?style=flat-square&logo=node.js)](https://nodejs.org/)
-[![MCP Badge](https://lobehub.com/badge/mcp/onmartech-metabase-ai-assistant)](https://lobehub.com/mcp/onmartech-metabase-ai-assistant)
----
+**Por qué importa:** en modo read-only, un agente puede leer el SQL/MBQL de una pregunta existente desde `mb_card_get` sin herramientas de escritura ni parsear texto plano.
 
-**Turn your AI assistant into a Metabase power user.**  
-Generate SQL from natural language, create dashboards, manage users, and automate BI workflows.
-
-[**📦 Install Now**](#-quick-start) • [**📖 Documentation**](#-available-tools) • [**🎯 Features**](#-why-this-project) • [**⭐ Star Us**](https://github.com/enessari/metabase-ai-assistant)
-
-</div>
+Archivos: `src/mcp/handlers/cards.js`, `src/mcp/tool-registry.js`
 
 ---
 
-## ⭐ Why This Project?
-
-> **"I analyzed every Metabase MCP server on the market. This one has 4x more tools and features than any competitor."**
-
-| Feature | **This Project** | Other MCP Servers |
-|---------|:----------------:|:-----------------:|
-| **Total Tools** | **134** ✅ | 6-30 |
-| **AI SQL Generation** | ✅ | ❌ |
-| **AI SQL Optimization** | ✅ | ❌ |
-| **Dashboard Templates** | ✅ | ❌ |
-| **User Management** | ✅ | ❌ |
-| **Workspace Export/Import** | ✅ | ❌ |
-| **Read-Only Security Mode** | ✅ | ✅ |
-| **Response Caching** | ✅ | ✅ |
-| **Activity Logging** | ✅ | ❌ |
-| **Metadata Analytics** | ✅ | ❌ |
-| **Parametric Questions** | ✅ | ❌ |
-| **Environment Comparison** | ✅ | ❌ |
-| **Structured Output (JSON)** | ✅ | ❌ |
-| **Tool Annotations** | ✅ | ❌ |
-
----
-
-## 🚀 Quick Start
+## Quick Start
 
 ### One-Line Install
 
@@ -75,48 +44,48 @@ npx metabase-ai-assistant
 }
 ```
 
-That's it! Your AI assistant now has full Metabase superpowers. 🦸
+That's it. Your AI assistant can use Metabase through MCP.
 
 ---
 
-## 🎯 What Can You Do?
+## Examples
 
-### 💬 Natural Language → SQL
+### Natural language to SQL
 
 ```
 You: "Show me total revenue by product category for the last 30 days"
 AI: Uses ai_sql_generate → Runs query → Returns formatted results
 ```
 
-### 📊 Instant Dashboard Creation
+### Dashboard creation
 
 ```
 You: "Create an executive dashboard for our e-commerce sales"
 AI: Uses mb_dashboard_template_executive → Creates fully configured dashboard
 ```
 
-### 🔍 Deep Database Exploration
+### Database exploration
 
 ```
 You: "What tables are related to 'orders' and show their relationships"
 AI: Uses db_relationships_detect → Returns complete ER diagram info
 ```
 
-### 🛡️ Enterprise-Grade Security
+### Read-only mode
 
 ```
-You: "DROP TABLE users" 
-AI: 🔒 Blocked - Read-only mode active
+You: "DROP TABLE users"
+AI: Blocked — read-only mode active
 ```
 
 ---
 
-## 🔧 Complete Tool List (134)
+## Tool list (134)
 
-> 🆕 All tools include MCP annotations and `title`. 16 priority tools support `outputSchema` + `structuredContent` for typed JSON responses.
+134 tools with MCP annotations. 16 priority tools support `outputSchema` + `structuredContent`.
 
 <details>
-<summary><b>📊 Database Operations (25 tools)</b></summary>
+<summary><b>Database operations (25 tools)</b></summary>
 
 | Tool | Description |
 |------|-------------|
@@ -140,7 +109,7 @@ AI: 🔒 Blocked - Read-only mode active
 </details>
 
 <details>
-<summary><b>🤖 AI-Powered Features (5 tools)</b></summary>
+<summary><b>AI features (5 tools)</b></summary>
 
 | Tool | Description |
 |------|-------------|
@@ -153,14 +122,14 @@ AI: 🔒 Blocked - Read-only mode active
 </details>
 
 <details>
-<summary><b>📋 Question/Card Management (12 tools)</b></summary>
+<summary><b>Question/card management (12 tools)</b></summary>
 
 | Tool | Description |
 |------|-------------|
 | `mb_question_create` | Create new questions |
 | `mb_questions` | List all questions |
 | `mb_question_create_parametric` | Parametric questions |
-| `mb_card_get` | Get card details |
+| `mb_card_get` | Get card details (includes `dataset_query` on this branch) |
 | `mb_card_update` | Update cards |
 | `mb_card_delete` | Delete cards |
 | `mb_card_archive` | Archive cards |
@@ -172,7 +141,7 @@ AI: 🔒 Blocked - Read-only mode active
 </details>
 
 <details>
-<summary><b>📈 Dashboard Management (14 tools)</b></summary>
+<summary><b>Dashboard management (14 tools)</b></summary>
 
 | Tool | Description |
 |------|-------------|
@@ -190,7 +159,7 @@ AI: 🔒 Blocked - Read-only mode active
 </details>
 
 <details>
-<summary><b>👥 User & Permission Management (10 tools)</b></summary>
+<summary><b>User and permission management (10 tools)</b></summary>
 
 | Tool | Description |
 |------|-------------|
@@ -206,7 +175,7 @@ AI: 🔒 Blocked - Read-only mode active
 </details>
 
 <details>
-<summary><b>📊 Metadata Analytics (14 tools)</b></summary>
+<summary><b>Metadata analytics (14 tools)</b></summary>
 
 | Tool | Description |
 |------|-------------|
@@ -227,16 +196,15 @@ AI: 🔒 Blocked - Read-only mode active
 
 ---
 
-## 🛡️ Security Features
+## Security
 
 | Feature | Description |
 |---------|-------------|
-| **🔒 Read-Only Mode** | Blocks INSERT, UPDATE, DELETE, DROP (default: enabled) |
-| **🏷️ AI Prefix** | All AI-created objects use `claude_ai_` prefix |
-| **✅ Explicit Approval** | Destructive operations require confirmation |
-| **📝 Activity Logging** | Full audit trail of all operations |
-| **🔐 Env Validation** | Zod-validated environment variables |
-| **💾 Auto-Backup** | Prompts for backup before destructive ops |
+| Read-only mode | Blocks INSERT, UPDATE, DELETE, DROP (default: enabled) |
+| AI prefix | AI-created objects use `claude_ai_` prefix |
+| Explicit approval | Destructive operations require confirmation |
+| Activity logging | Audit trail of operations |
+| Env validation | Zod-validated environment variables |
 
 ```bash
 # Enable/disable read-only mode
@@ -246,7 +214,7 @@ METABASE_READ_ONLY_MODE=false # Allow write operations
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 Create a `.env` file:
 
@@ -272,7 +240,7 @@ CACHE_TTL_MS=600000  # 10 minutes
 
 ---
 
-## 📦 Installation Options
+## Installation
 
 ### npm (Recommended)
 
@@ -283,13 +251,13 @@ npm install -g metabase-ai-assistant
 ### Docker
 
 ```bash
-docker run -e METABASE_URL=... -e METABASE_API_KEY=... ghcr.io/enessari/metabase-ai-assistant
+docker run -e METABASE_URL=... -e METABASE_API_KEY=... metabase-ai-assistant
 ```
 
 ### From Source
 
 ```bash
-git clone https://github.com/enessari/metabase-ai-assistant.git
+git clone <repo-url>
 cd metabase-ai-assistant
 npm install
 npm run mcp
@@ -297,7 +265,7 @@ npm run mcp
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 metabase-ai-assistant/
@@ -318,50 +286,19 @@ metabase-ai-assistant/
 
 ---
 
-## 🤝 Contributing
+## Contributing
 
-We welcome contributions! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
-
-```bash
-# Fork, clone, install
-git clone https://github.com/YOUR_USERNAME/metabase-ai-assistant.git
-npm install
-
-# Create feature branch
-git checkout -b feature/amazing-feature
-
-# Test and submit PR
-npm test
-git push origin feature/amazing-feature
-```
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ---
 
-## 📚 Resources
+## Resources
 
-- [📖 Full Documentation](https://github.com/enessari/metabase-ai-assistant/wiki)
-- [🐛 Report Issues](https://github.com/enessari/metabase-ai-assistant/issues)
-- [💬 Discussions](https://github.com/enessari/metabase-ai-assistant/discussions)
-- [📦 npm Package](https://www.npmjs.com/package/metabase-ai-assistant)
+- [MCP integration guide](README_MCP.md)
+- [npm package](https://www.npmjs.com/package/metabase-ai-assistant)
 
 ---
 
-## 📄 License
+## License
 
-Apache License 2.0 - see [LICENSE](LICENSE)
-
----
-
-<div align="center">
-
-### ⭐ Star this repo if it helps you!
-
-**Built with ❤️ by [Abdullah Enes SARI](https://github.com/enessari) @ [ONMARTECH LLC](https://onmartech.com)**
-
-[![Star History](https://img.shields.io/github/stars/enessari/metabase-ai-assistant?style=social)](https://github.com/enessari/metabase-ai-assistant/stargazers)
-
----
-
-**Keywords:** Metabase MCP Server, Model Context Protocol, AI SQL Generation, Business Intelligence, Claude AI, Cursor AI, Natural Language SQL, Dashboard Automation, PostgreSQL, Data Analytics, LLM Tools
-
-</div>
+Apache License 2.0 — see [LICENSE](LICENSE)
