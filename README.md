@@ -95,12 +95,24 @@ npm install -g metabase-ai-assistant
 
 ---
 
-## Client Configuration
+## Client Configuration & Desktop Installation
 
-### 1. Claude Desktop (`claude_desktop_config.json`)
+### 1. Claude Desktop (One-Click Extension / DXT Bundle)
 
-On macOS: `~/Library/Application Support/Claude/claude_desktop_config.json`  
-On Windows: `%APPDATA%\Claude\claude_desktop_config.json`
+Metabase AI Assistant includes a native `manifest.json` for Claude Desktop Extensions:
+
+- Simply open **Claude Desktop Settings** -> **Developer / Extensions** -> **Install Local Extension** and select this repository folder.
+- Or install directly via Smithery:
+  ```bash
+  npx -y @smithery/cli install metabase-ai-assistant --client claude
+  ```
+
+### 2. Claude Desktop (Manual JSON Configuration)
+
+Add the server definition to your `claude_desktop_config.json`:
+
+- **macOS Path**: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows Path**: `%APPDATA%\Claude\claude_desktop_config.json`
 
 ```json
 {
@@ -118,12 +130,31 @@ On Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 }
 ```
 
-### 2. Cursor IDE (`.cursor/mcp.json`)
+### 3. Cursor IDE (`.cursor/mcp.json` or Settings > MCP)
 
 ```json
 {
   "mcpServers": {
     "metabase": {
+      "command": "npx",
+      "args": ["-y", "metabase-ai-assistant"],
+      "env": {
+        "METABASE_URL": "https://your-metabase-instance.com",
+        "METABASE_API_KEY": "mb_your_api_key_here",
+        "METABASE_READ_ONLY_MODE": "true"
+      }
+    }
+  }
+}
+```
+
+### 4. Windsurf, Cline & Roo Code (VS Code Extension)
+
+Install via NPX directly in your tool config:
+```json
+{
+  "mcpServers": {
+    "metabase-ai-assistant": {
       "command": "npx",
       "args": ["-y", "metabase-ai-assistant"],
       "env": {
@@ -195,9 +226,17 @@ Bünyesinde barındırdığı **133 operasyonel araç**, sıkı güvenlik protok
 - **Koleksiyon Hiyerarşisi**: Metabase koleksiyon ağaçlarını listeler, öğeleri taşır ve yetkilendirmeleri yönetir.
 - **Kurumsal Güvenlik Standartları**: Varsayılan salt-okunur (read-only) modu, prompt injection izolasyonu (`[UNTRUSTED_METADATA]`) ve SQL sanitizasyonu ile veri güvenliğini garanti eder.
 
-## Kurulum ve Entegrasyon
+## Kurulum ve Masaüstü Entegrasyonu
 
-Claude Desktop veya Cursor konfigürasyon dosyanıza (`claude_desktop_config.json` veya `.cursor/mcp.json`) aşağıdaki tanımı eklemeniz yeterlidir:
+### 1. Claude Desktop (Tek Tıkla Extension Kurulumu)
+- Claude Desktop Ayarlar > Geliştirici / Uzantılar bölümünden bu repo klasörünü seçerek doğrudan yerel eklenti olarak kurabilirsiniz.
+- Veya Smithery üzerinden tek komutla:
+  ```bash
+  npx -y @smithery/cli install metabase-ai-assistant --client claude
+  ```
+
+### 2. Claude Desktop & Cursor (Manuel JSON Yapılandırması)
+Konfigürasyon dosyanıza (`claude_desktop_config.json` veya `.cursor/mcp.json`) aşağıdaki tanımı eklemeniz yeterlidir:
 
 ```json
 {

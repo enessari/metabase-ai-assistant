@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "metabase": {
+      "command": "npx",
+      "args": ["-y", "metabase-ai-assistant"],
+      "env": {
+        "METABASE_URL": "https://your-metabase-instance.com",
+        "METABASE_API_KEY": "mb_your_api_key_here",
+        "METABASE_READ_ONLY_MODE": "true"
+      }
+    }
+  }
+}
