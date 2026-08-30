@@ -62,3 +62,16 @@ export function withStructuredOutput(handler, dataExtractor) {
         return result;
     };
 }
+
+/**
+ * Format structured response with direct text and data payload.
+ * @param {string} text - Formatted markdown or text representation
+ * @param {object} data - Structured data payload
+ * @returns {{ content: Array, structuredContent: object }}
+ */
+export function formatStructuredResponse(text, data) {
+    return {
+        content: [{ type: 'text', text }],
+        structuredContent: data,
+    };
+}

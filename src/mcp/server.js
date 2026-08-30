@@ -26,6 +26,7 @@ import { ActionsHandler } from './handlers/actions.js';
 import { DocsHandler } from './handlers/docs.js';
 import { SchemaHandler } from './handlers/schema.js';
 import { AnalyticsHandler } from './handlers/analytics.js';
+import { DbtSemanticHandler } from './handlers/dbt-semantic.js';
 
 // Tool system
 import { getToolDefinitions } from './tool-registry.js';
@@ -144,6 +145,7 @@ class MetabaseMCPServer {
       this.docsHandler = new DocsHandler(this.metabaseClient);
       this.schemaHandler = new SchemaHandler(this.metabaseClient, this.activityLogger);
       this.analyticsHandler = new AnalyticsHandler(this.metabaseClient, this.metadataClient, this.activityLogger);
+      this.dbtSemanticHandler = new DbtSemanticHandler(this.metabaseClient, this.aiAssistant, this.metadataClient);
     } catch (error) {
       logger.error('Failed to initialize MCP server:', error);
       this.initError = error;
@@ -401,6 +403,15 @@ class MetabaseMCPServer {
       case 'meta_audit_logs': return await this.metadataHandler.handleAuditLogs(args);
       case 'meta_lineage': return await this.metadataHandler.handleLineage(args);
       case 'meta_advanced_search': return await this.metadataHandler.handleAdvancedSearch(args);
+
+      // ── dbt & Semantic Layer (Governance-First) ──
+      case 'dbt_inspect_models': return await this.dbtSemanticHandler.handleDbtInspectModels(args);
+      case 'dbt_prioritize_sources': return await this.dbtSemanticHandler.handleDbtPrioritizeSources(args);
+      case 'semantic_memory_propose': return await this.dbtSemanticHandler.handleSemanticMemoryPropose(args);
+      case 'semantic_memory_approve': return await this.dbtSemanticHandler.handleSemanticMemoryApprove(args);
+      case 'semantic_memory_deprecate': return await this.dbtSemanticHandler.handleSemanticMemoryDeprecate(args);
+      case 'semantic_memory_restore': return await this.dbtSemanticHandler.handleSemanticMemoryRestore(args);
+      case 'semantic_memory_list': return await this.dbtSemanticHandler.handleSemanticMemoryList(args);
 
       default:
         throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);

@@ -4219,6 +4219,152 @@ export function getToolDefinitions() {
           }
         }
       }
+    },
+    {
+      name: 'dbt_inspect_models',
+      title: 'Inspect dbt Models & Architectural Layers',
+      description: 'ℹ️ [dbt ARCHITECTURE] Inspect dbt project models, lineage, and architectural tiers (marts/facts, marts/dims, intermediate, staging) from manifest.json.',
+      readOnlyHint: true,
+      inputSchema: {
+        type: 'object',
+        properties: {
+          manifest_path: {
+            type: 'string',
+            description: 'Optional absolute path to dbt target/manifest.json. Defaults to cached project manifest.'
+          }
+        }
+      }
+    },
+    {
+      name: 'dbt_prioritize_sources',
+      title: 'Resolve Optimal dbt Source Models',
+      description: '📊 [dbt SOURCE RESOLUTION] Prioritize the most trustworthy and aggregated dbt models (Gold Marts fct_/dim_ > Silver int_ > Bronze stg_) for a given question or intent.',
+      readOnlyHint: true,
+      inputSchema: {
+        type: 'object',
+        properties: {
+          query_intent: {
+            type: 'string',
+            description: 'Business question or analysis intent (e.g., "Monthly churn and active subscription trends")'
+          },
+          keywords: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'Optional search keywords to match against dbt models, tags, and column names'
+          }
+        }
+      }
+    },
+    {
+      name: 'semantic_memory_propose',
+      title: 'Propose Business Rule (Pending Approval)',
+      description: '⚠️ [GOVERNANCE PROPOSAL] Propose a new business term, metric calculation, or filter rule. ⚠️ RULE IS NOT ACTIVE UNTIL EXPLICITLY APPROVED via semantic_memory_approve.',
+      readOnlyHint: false,
+      inputSchema: {
+        type: 'object',
+        properties: {
+          term: {
+            type: 'string',
+            description: 'Business term or metric name (e.g., "Active Customer", "MRR", "Churned User")'
+          },
+          definition: {
+            type: 'string',
+            description: 'Detailed natural language definition of the business rule'
+          },
+          category: {
+            type: 'string',
+            enum: ['business_term', 'metric_definition', 'filter_rule', 'join_preference', 'exclusion_rule'],
+            description: 'Rule category (default: business_term)',
+            default: 'business_term'
+          },
+          comment: {
+            type: 'string',
+            description: 'Business justification or context for why this rule was proposed'
+          },
+          author: {
+            type: 'string',
+            description: 'Author / stakeholder name or email (e.g., "finance_lead@company.com")'
+          },
+          sql_condition: {
+            type: 'string',
+            description: 'Optional precise SQL predicate (e.g., "status = \'active\' AND is_trial = false")'
+          },
+          dbt_model_hint: {
+            type: 'string',
+            description: 'Optional recommended dbt mart model name (e.g., "fct_subscriptions")'
+          }
+        },
+        required: ['term', 'definition']
+      }
+    },
+    {
+      name: 'semantic_memory_approve',
+      title: 'Explicitly Approve Business Rule',
+      description: '✅ [GOVERNANCE APPROVAL] Explicitly approve a proposed business rule to make it ACTIVE. Once active, it will be automatically injected into BI query generation.',
+      readOnlyHint: false,
+      inputSchema: {
+        type: 'object',
+        properties: {
+          rule_id: {
+            type: 'string',
+            description: 'Unique rule ID from semantic_memory_propose (e.g., "rule_a1b2c3d4")'
+          },
+          comment: {
+            type: 'string',
+            description: 'Mandatory approval notes or stakeholder sign-off'
+          },
+          author: {
+            type: 'string',
+            description: 'Name or email of the approving data steward / admin'
+          }
+        },
+        required: ['rule_id', 'comment']
+      }
+    },
+    {
+      name: 'semantic_memory_deprecate',
+      title: 'Soft-Deprecate / Archive Business Rule (No Hard-Delete)',
+      description: '🔒 [GOVERNANCE DEPRECATION] Safely soft-archive/comment-out an assistant-created rule with mandatory deprecation reason. NO HARD DELETION IS PERFORMED.',
+      readOnlyHint: false,
+      inputSchema: {
+        type: 'object',
+        properties: {
+          rule_id: {
+            type: 'string',
+            description: 'Rule ID to deprecate'
+          },
+          reason: {
+            type: 'string',
+            description: 'Mandatory detailed reason for deprecating this rule (minimum 5 characters)'
+          },
+          author: {
+            type: 'string',
+            description: 'Name or email of the deprecating user'
+          }
+        },
+        required: ['rule_id', 'reason']
+      }
+    },
+    {
+      name: 'semantic_memory_list',
+      title: 'List Semantic Rules & Audit History',
+      description: '📚 [GOVERNANCE REGISTRY] List all business rules with their status (ACTIVE, PENDING_APPROVAL, DEPRECATED), stakeholder comments, and complete audit history.',
+      readOnlyHint: true,
+      inputSchema: {
+        type: 'object',
+        properties: {
+          status: {
+            type: 'string',
+            enum: ['ACTIVE', 'PENDING_APPROVAL', 'DEPRECATED'],
+            description: 'Filter by rule status'
+          },
+          category: {
+            type: 'string',
+            enum: ['business_term', 'metric_definition', 'filter_rule', 'join_preference', 'exclusion_rule'],
+            description: 'Filter by category'
+          }
+        }
+      }
     }
   ]);
 }

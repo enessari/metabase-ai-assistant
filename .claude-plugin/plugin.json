@@ -1,7 +1,7 @@
 {
   "name": "metabase-ai-assistant",
-  "description": "MCP Server for Metabase - 137 tools for autonomous self-healing SQL, dashboard architecting, and enterprise BI",
-  "version": "5.0.0",
+  "description": "MCP Server for Metabase - 143 tools for dbt semantic models, governance-first memory, and enterprise BI",
+  "version": "5.1.0",
   "author": {
     "name": "Abdullah Enes SARI",
     "email": "contact@onmartech.com"

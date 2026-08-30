@@ -1,8 +1,8 @@
 {
   "name": "metabase-ai-assistant",
-  "version": "5.0.0",
+  "version": "5.1.0",
   "mcpName": "io.github.enessari/metabase-ai-assistant",
-  "description": "The most powerful MCP Server for Metabase - 137 tools with autonomous self-healing SQL, automated dashboard architecting, proactive anomaly detection, index advisory, structured output & enterprise BI. Works with Claude, Cursor, ChatGPT, Gemini, and any MCP client.",
+  "description": "The most powerful MCP Server for Metabase - 143 tools with dbt semantic layer integration, governance-first business memory, autonomous self-healing SQL, automated dashboard architecting & enterprise BI. Works with Claude, Cursor, ChatGPT, Gemini, and any MCP client.",
   "main": "src/index.js",
   "type": "module",
   "scripts": {

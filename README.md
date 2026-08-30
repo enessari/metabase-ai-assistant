@@ -7,7 +7,7 @@
 
 Metabase AI Assistant is an enterprise-grade Model Context Protocol (MCP) server that connects Large Language Models (LLMs), AI coding assistants, and automated data workflows directly to your Metabase Business Intelligence instance.
 
-Featuring **137 dedicated tools**, autonomous self-healing SQL execution, full-scale dashboard architecting, proactive anomaly detection, query index advisory, zero-leak PII masking, strict security guardrails, and deep version compatibility across Metabase releases.
+Featuring **143 dedicated tools**, native dbt Semantic Layer awareness, governance-first business memory (explicit approvals, soft-deprecation), autonomous self-healing SQL execution, full-scale dashboard architecting, proactive anomaly detection, query index advisory, zero-leak PII masking, and strict security guardrails.
 
 ---
 
@@ -15,7 +15,7 @@ Featuring **137 dedicated tools**, autonomous self-healing SQL execution, full-s
 
 - [English Documentation](#-english-documentation)
   - [Core Capabilities](#core-capabilities)
-  - [Next-Gen Autonomous Features (v5.0)](#next-gen-autonomous-features-v50)
+  - [dbt Semantic Layer & Governance Memory (v5.1)](#dbt-semantic-layer--governance-memory-v51)
   - [Architecture & Security](#architecture--security)
   - [Metabase Version Compatibility](#metabase-version-compatibility)
   - [Quick Start & Installation](#quick-start--installation)
@@ -44,13 +44,13 @@ Featuring **137 dedicated tools**, autonomous self-healing SQL execution, full-s
 
 Metabase AI Assistant transforms standard AI interfaces (Claude Desktop, Cursor, VS Code, automated agent frameworks) into full-fledged Metabase power users:
 
-1. **Autonomous Self-Healing SQL Engine (`ai_sql_execute_and_heal`)**: Executes queries, catches database syntax/schema errors, inspects table structures, repairs queries automatically across 3 retry loops, and returns audited results.
-2. **End-to-End Autonomous Dashboard Architect (`ai_dashboard_build_full`)**: Generates 6-8 tailored metric cards, calculates collision-free 24-column grid coordinates, saves questions, builds dashboards, and binds global filters in a single request.
-3. **AI Query Index & Materialized View Advisor (`ai_query_index_advisor`)**: Analyzes SQL and `EXPLAIN` query plans to recommend optimal composite indexes and materialized view definitions.
-4. **Proactive KPI Anomaly & Outlier Detector (`ai_analytics_detect_anomalies`)**: Multi-model statistical engine (Z-Score, Tukey IQR, Bollinger Bands) to detect metric anomalies with dimensional root-cause hypotheses.
-5. **Zero-Leak Enterprise PII Masker (`src/utils/pii-masker.js`)**: Real-time masking of emails, phone numbers, national IDs, credit cards, IP addresses, and tokens before data leaves for LLM contexts.
-6. **Natural Language to SQL Generation**: Generate syntactically valid and optimized queries based on live database schemas, table metadata, and relational constraints.
-7. **Role & Permission Management**: Manage users, permission groups, collection access graphs, and enterprise governance structures.
+1. **dbt Semantic Layer & Model Hierarchy Awareness (`dbt_inspect_models`, `dbt_prioritize_sources`)**: Prioritizes curated Gold Marts (`fct_`, `dim_`, `rpt_`) over raw staging tables to ensure clean, tested metric calculations.
+2. **Governance-First Semantic Memory (`semantic_memory_propose`, `semantic_memory_approve`, `semantic_memory_deprecate`)**: Learns company-specific business rules with **explicit proposal and approval workflows**. Implements safe **soft-deprecation (no hard deletes)** with mandatory audit comments.
+3. **Autonomous Self-Healing SQL Engine (`ai_sql_execute_and_heal`)**: Executes queries, catches database syntax/schema errors, inspects table structures, repairs queries automatically across 3 retry loops, and returns audited results.
+4. **End-to-End Autonomous Dashboard Architect (`ai_dashboard_build_full`)**: Generates 6-8 tailored metric cards, calculates collision-free 24-column grid coordinates, saves questions, builds dashboards, and binds global filters in a single request.
+5. **AI Query Index & Materialized View Advisor (`ai_query_index_advisor`)**: Analyzes SQL and `EXPLAIN` query plans to recommend optimal composite indexes and materialized view definitions.
+6. **Proactive KPI Anomaly & Outlier Detector (`ai_analytics_detect_anomalies`)**: Multi-model statistical engine (Z-Score, Tukey IQR, Bollinger Bands) to detect metric anomalies with dimensional root-cause hypotheses.
+7. **Zero-Leak Enterprise PII Masker (`src/utils/pii-masker.js`)**: Real-time masking of emails, phone numbers, national IDs, credit cards, IP addresses, and tokens before data leaves for LLM contexts.
 
 ---
 

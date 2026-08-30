@@ -29,7 +29,7 @@ app.get('/health', (req, res) => {
   res.json({
     status: 'ok',
     server: 'metabase-ai-assistant',
-    version: '5.0.0',
+    version: '5.1.0',
     tools_count: getToolDefinitions().length,
     timestamp: new Date().toISOString(),
   });
