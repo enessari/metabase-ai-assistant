@@ -1,7 +1,7 @@
 {
   "name": "metabase-ai-assistant",
-  "description": "MCP Server for Metabase - 111 tools for SQL generation, dashboard management, and PostgreSQL integration",
-  "version": "3.2.0",
+  "description": "MCP Server for Metabase - 133 tools for AI-powered SQL generation, dashboard automation, and enterprise BI",
+  "version": "4.2.1",
   "author": {
     "name": "Abdullah Enes SARI",
     "email": "contact@onmartech.com"
@@ -26,16 +26,15 @@
         "args": ["-y", "metabase-ai-assistant"],
         "env": {
           "METABASE_URL": "${METABASE_URL}",
+          "METABASE_API_KEY": "${METABASE_API_KEY}",
           "METABASE_USERNAME": "${METABASE_USERNAME}",
           "METABASE_PASSWORD": "${METABASE_PASSWORD}",
-          "METABASE_API_KEY": "${METABASE_API_KEY}",
-          "DATABASE_HOST": "${DATABASE_HOST}",
-          "DATABASE_PORT": "${DATABASE_PORT}",
-          "DATABASE_NAME": "${DATABASE_NAME}",
-          "DATABASE_USER": "${DATABASE_USER}",
-          "DATABASE_PASSWORD": "${DATABASE_PASSWORD}"
+          "METABASE_READ_ONLY_MODE": "${METABASE_READ_ONLY_MODE}",
+          "METABASE_INTERNAL_DB_ID": "${METABASE_INTERNAL_DB_ID}",
+          "MB_METADATA_ENABLED": "${MB_METADATA_ENABLED}"
         }
       }
     }
   }
 }
+
