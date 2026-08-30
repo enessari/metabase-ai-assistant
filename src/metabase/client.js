@@ -95,6 +95,41 @@ export class MetabaseClient {
   }
 
   // Database Operations
+  async getServerVersion() {
+    await this.ensureAuthenticated();
+    try {
+      // Try /api/session/properties (supported on all modern Metabase versions)
+      const properties = await this.client.get('/api/session/properties');
+      const versionInfo = properties.data?.version || {};
+      return {
+        tag: versionInfo.tag || properties.data?.['metabase-version'] || 'unknown',
+        date: versionInfo.date || null,
+        branch: versionInfo.branch || 'master',
+        is_enterprise: !!properties.data?.['has-premium-features?'],
+      };
+    } catch (err) {
+      try {
+        // Fallback to /api/util/version
+        const version = await this.client.get('/api/util/version');
+        return typeof version.data === 'string' ? { tag: version.data } : version.data;
+      } catch (fallbackErr) {
+        logger.warn('Could not determine Metabase server version', { error: err.message });
+        return { tag: 'unknown' };
+      }
+    }
+  }
+
+  async getCollectionTree() {
+    await this.ensureAuthenticated();
+    return await this.request('GET', '/api/collection/tree');
+  }
+
+  async getCollectionItems(collectionId = 'root', options = {}) {
+    await this.ensureAuthenticated();
+    const endpoint = collectionId === 'root' ? '/api/collection/root/items' : `/api/collection/${collectionId}/items`;
+    return await this.request('GET', endpoint, options);
+  }
+
   async getDatabases() {
     await this.ensureAuthenticated();
     const response = await this.client.get('/api/database');

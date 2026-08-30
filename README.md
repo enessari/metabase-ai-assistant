@@ -50,6 +50,15 @@ Generate SQL from natural language, create dashboards, manage users, and automat
 
 ---
 
+## 🎯 Metabase Version Compatibility Matrix
+
+| Metabase Version | Support Status | Key Features Supported |
+|---|:---:|---|
+| **Metabase v0.55 – v0.61+** (Latest) | ✅ Fully Supported | MBQL 5 format, `/api/upload/csv`, collection graph permissions, modern tabs |
+| **Metabase v0.50 – v0.54** | ✅ Fully Supported | Collection tree hierarchies, model cards, API key authentication, parametric queries |
+| **Metabase v0.43 – v0.49** | ✅ Fully Supported | Session authentication, legacy MBQL, database introspection |
+| **Metabase Open Source & Enterprise** | ✅ Fully Supported | Both OSS and Enterprise/Pro features with premium capability autodetection |
+
 ## 🚀 Quick Start
 
 ### One-Line Install
