@@ -7,7 +7,7 @@
 
 Metabase AI Assistant is an enterprise-grade Model Context Protocol (MCP) server that connects Large Language Models (LLMs), AI coding assistants, and automated data workflows directly to your Metabase Business Intelligence instance.
 
-Featuring **133 dedicated tools**, strict security guardrails, AI provenance tracking, and deep version compatibility across Metabase releases, this server enables natural language analytics, automated dashboard operations, schema exploration, and administrative orchestration.
+Featuring **137 dedicated tools**, autonomous self-healing SQL execution, full-scale dashboard architecting, proactive anomaly detection, query index advisory, zero-leak PII masking, strict security guardrails, and deep version compatibility across Metabase releases.
 
 ---
 
@@ -15,15 +15,16 @@ Featuring **133 dedicated tools**, strict security guardrails, AI provenance tra
 
 - [English Documentation](#-english-documentation)
   - [Core Capabilities](#core-capabilities)
+  - [Next-Gen Autonomous Features (v5.0)](#next-gen-autonomous-features-v50)
   - [Architecture & Security](#architecture--security)
   - [Metabase Version Compatibility](#metabase-version-compatibility)
   - [Quick Start & Installation](#quick-start--installation)
-  - [Client Configuration](#client-configuration)
+  - [Client Configuration & Desktop Installation](#client-configuration--desktop-installation)
   - [Tool Categories Overview](#tool-categories-overview)
 - [Türkçe Dokümantasyon](#-türkçe-dokümantasyon)
   - [Genel Bakış](#genel-bakış)
   - [Temel Özellikler](#temel-özellikler)
-  - [Kurulum ve Entegrasyon](#kurulum-ve-entegrasyon)
+  - [Kurulum ve Masaüstü Entegrasyonu](#kurulum-ve-masaüstü-entegrasyonu)
 - [التوثيق باللغة العربية](#-التوثيق-باللغة-العربية)
   - [نظرة عامة](#نظرة-عامة)
   - [الميزات الرئيسية](#الميزات-الرئيسية)
@@ -43,12 +44,13 @@ Featuring **133 dedicated tools**, strict security guardrails, AI provenance tra
 
 Metabase AI Assistant transforms standard AI interfaces (Claude Desktop, Cursor, VS Code, automated agent frameworks) into full-fledged Metabase power users:
 
-1. **Natural Language to SQL Generation**: Generate syntactically valid and optimized queries based on live database schemas, table metadata, and relational constraints.
-2. **Dashboard & Card Lifecycle Management**: Create, clone, modify, archive, and parameterize cards/questions and dashboards programmatically.
-3. **Intelligent Grid & Layout Automation**: Position and resize cards automatically on the Metabase dashboard grid, configure series settings, and link dashboard filters to card variables.
-4. **Full Schema & Relationship Introspection**: Inspect tables, fields, foreign keys, cardinality, and data types without issuing manual DDL queries.
-5. **Role & Permission Management**: Manage users, permission groups, collection access graphs, and enterprise governance structures.
-6. **Performance & Query Analytics**: Test database latency, inspect slow queries, monitor execution logs, and analyze Metabase internal database metrics.
+1. **Autonomous Self-Healing SQL Engine (`ai_sql_execute_and_heal`)**: Executes queries, catches database syntax/schema errors, inspects table structures, repairs queries automatically across 3 retry loops, and returns audited results.
+2. **End-to-End Autonomous Dashboard Architect (`ai_dashboard_build_full`)**: Generates 6-8 tailored metric cards, calculates collision-free 24-column grid coordinates, saves questions, builds dashboards, and binds global filters in a single request.
+3. **AI Query Index & Materialized View Advisor (`ai_query_index_advisor`)**: Analyzes SQL and `EXPLAIN` query plans to recommend optimal composite indexes and materialized view definitions.
+4. **Proactive KPI Anomaly & Outlier Detector (`ai_analytics_detect_anomalies`)**: Multi-model statistical engine (Z-Score, Tukey IQR, Bollinger Bands) to detect metric anomalies with dimensional root-cause hypotheses.
+5. **Zero-Leak Enterprise PII Masker (`src/utils/pii-masker.js`)**: Real-time masking of emails, phone numbers, national IDs, credit cards, IP addresses, and tokens before data leaves for LLM contexts.
+6. **Natural Language to SQL Generation**: Generate syntactically valid and optimized queries based on live database schemas, table metadata, and relational constraints.
+7. **Role & Permission Management**: Manage users, permission groups, collection access graphs, and enterprise governance structures.
 
 ---
 

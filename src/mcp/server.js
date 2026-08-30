@@ -358,9 +358,13 @@ class MetabaseMCPServer {
       case 'parametric_template_preset': return await this.schemaHandler.handleParametricTemplatePreset(args);
 
       // ── AI Assistance ──
+      case 'ai_sql_execute_and_heal': return await this.sqlHandler.handleExecuteAndHealSQL(args);
       case 'ai_sql_generate': return await this.sqlHandler.handleGenerateSQL(args);
       case 'ai_sql_optimize': return await this.sqlHandler.handleOptimizeQuery(args);
       case 'ai_sql_explain': return await this.sqlHandler.handleExplainQuery(args);
+      case 'ai_dashboard_build_full': return await this.cardsHandler.handleBuildFullDashboard(args);
+      case 'ai_query_index_advisor': return await this.analyticsHandler.handleQueryIndexAdvisor(args);
+      case 'ai_analytics_detect_anomalies': return await this.analyticsHandler.handleDetectAnomalies(args);
 
       // ── Activity Logging ──
       case 'activity_log_init': return await this.analyticsHandler.handleInitializeActivityLog(args);

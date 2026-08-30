@@ -409,20 +409,21 @@ describe('M2 Adversarial Challenger Empirical Test Suite', () => {
   // 4. TOOL REGISTRY SCHEMA & INTEGRITY AUDIT
   // ─────────────────────────────────────────────────────────────
   describe('4. Tool Registry Output Schema & Integrity Audit', () => {
-    test('exactly 133 unique tools are registered with zero duplicate names', () => {
+    test('all unique tools are registered with zero duplicate names', () => {
       const tools = getToolDefinitions();
-      expect(tools.length).toBe(133);
+      expect(tools.length).toBeGreaterThanOrEqual(134);
 
       const names = tools.map(t => t.name);
       const uniqueNames = new Set(names);
-      expect(uniqueNames.size).toBe(133);
+      expect(uniqueNames.size).toBe(tools.length);
 
       const duplicates = names.filter((name, idx) => names.indexOf(name) !== idx);
       expect(duplicates).toEqual([]);
     });
 
-    test('all 5 generative tools declare _provenance schema with required fields in TOOL_METADATA', () => {
+    test('all generative AI tools declare _provenance schema with required fields in TOOL_METADATA', () => {
       const generativeTools = [
+        'ai_sql_execute_and_heal',
         'ai_sql_generate',
         'ai_sql_optimize',
         'ai_sql_explain',

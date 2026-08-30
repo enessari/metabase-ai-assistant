@@ -57,6 +57,8 @@ describe('Tool Registry Validation & Deduplication Tests', () => {
       'ai_sql_explain',
       'ai_relationships_suggest',
       'mb_auto_describe',
+      'ai_query_index_advisor',
+      'ai_analytics_detect_anomalies',
     ];
 
     for (const name of generativeTools) {

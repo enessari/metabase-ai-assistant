@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.enessari/metabase-ai-assistant",
-  "description": "The most powerful MCP Server for Metabase - 133 tools with structured output, AI-powered SQL generation, dashboard automation, user management & enterprise BI. MCP SDK v1.26.0 compliant. Works with Claude, Cursor, and any MCP-compatible AI.",
+  "description": "The most powerful MCP Server for Metabase - 137 tools with autonomous self-healing SQL, automated dashboard architecting, proactive anomaly detection, index advisory, structured output & enterprise BI. Works with Claude, Cursor, ChatGPT, Gemini, and any MCP client.",
   "repository": {
     "url": "https://github.com/enessari/metabase-ai-assistant",
     "source": "github"
   },
-  "version": "4.2.1",
+  "version": "5.0.0",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "metabase-ai-assistant",
-      "version": "4.2.1",
+      "version": "5.0.0",
       "transport": {
         "type": "stdio"
       },

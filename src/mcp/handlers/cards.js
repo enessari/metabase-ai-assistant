@@ -1,5 +1,8 @@
 import { logger } from '../../utils/logger.js';
 import { BaseHandler } from './base.js';
+import { maskRow, maskCSV, isPiiMaskingEnabled } from '../../utils/pii-masker.js';
+import { buildFullDashboard } from '../../analytics/dashboard-architect.js';
+import { isReadOnlyMode } from './database.js';
 
 export class CardsHandler extends BaseHandler {
   constructor(contextOrClient, activityLogger, connectionManager) {
@@ -28,6 +31,7 @@ export class CardsHandler extends BaseHandler {
       'mb_card_data': (args) => this.handleCardData(args),
       'mb_card_copy': (args) => this.handleCardCopy(args),
       'mb_card_clone': (args) => this.handleCardClone(args),
+      'ai_dashboard_build_full': (args) => this.handleBuildFullDashboard(args),
     };
   }
 
@@ -220,8 +224,19 @@ export class CardsHandler extends BaseHandler {
 
       if (format === 'json') {
         const data = result.data || result;
-        const rows = data.rows || [];
+        const rawRows = data.rows || [];
         const cols = data.cols || [];
+        const columnNames = cols.map(c => (typeof c === 'object' && c !== null ? (c.name || c.display_name || '') : String(c)));
+
+        const maskingEnabled = isPiiMaskingEnabled(args);
+        const maskOptions = {
+          strict: args.mask_strict === true,
+          preserveDomain: args.preserve_domain !== false,
+          pseudonymize: args.pseudonymize === true,
+          salt: args.salt || 'metabase_ai_salt',
+        };
+
+        const rows = maskingEnabled ? rawRows.map(row => maskRow(row, columnNames, maskOptions)) : rawRows;
 
         return {
           content: [{
@@ -232,10 +247,20 @@ export class CardsHandler extends BaseHandler {
           }]
         };
       } else {
+        let exportText = `Card ${card_id} data exported as ${format.toUpperCase()}`;
+        if (typeof result === 'string' && format === 'csv' && isPiiMaskingEnabled(args)) {
+          const maskOptions = {
+            strict: args.mask_strict === true,
+            preserveDomain: args.preserve_domain !== false,
+            pseudonymize: args.pseudonymize === true,
+            salt: args.salt || 'metabase_ai_salt',
+          };
+          exportText = maskCSV(result, maskOptions);
+        }
         return {
           content: [{
             type: 'text',
-            text: `Card ${card_id} data exported as ${format.toUpperCase()}`
+            text: exportText
           }]
         };
       }
@@ -317,6 +342,115 @@ export class CardsHandler extends BaseHandler {
       };
     } catch (error) {
       return { content: [{ type: 'text', text: `❌ Card clone error: ${error.message}` }] };
+    }
+  }
+
+  /**
+   * Autonomous Full Dashboard Architect Handler (ai_dashboard_build_full)
+   * Single-call generation of complete dashboard with >=4 cards, 24-col collision-free layout, and interactive filters.
+   */
+  async handleBuildFullDashboard(args) {
+    if (isReadOnlyMode()) {
+      logger.warn('Read-only mode: Blocked ai_dashboard_build_full operation');
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `🔒 **Read-Only Mode Active**\n\n` +
+              `⛔ **Operation Blocked:** \`ai_dashboard_build_full\`\n\n` +
+              `This MCP server is running in read-only mode for security.\n` +
+              `Write operations (dashboard creation, card creation) are not allowed.\n\n` +
+              `To enable write operations, set \`METABASE_READ_ONLY_MODE=false\` in your environment.`,
+          },
+        ],
+      };
+    }
+
+    const databaseId = args.database_id !== undefined ? args.database_id : args.databaseId;
+    const collectionId = args.collection_id !== undefined ? args.collection_id : args.collectionId;
+    const name = args.name;
+    const description = args.description;
+    const cards = args.cards;
+    const filters = args.filters || [];
+    const theme = args.theme || 'executive';
+
+    try {
+      const result = await buildFullDashboard({
+        name,
+        description,
+        databaseId,
+        collectionId,
+        theme,
+        cards,
+        filters,
+        client: this.metabaseClient,
+        assistant: this.aiAssistant,
+        maskPii: isPiiMaskingEnabled(args),
+      });
+
+      // Format markdown summary
+      let output = `✅ **Autonomous Dashboard Built Successfully!**\n\n`;
+      output += `📊 **Dashboard:** ${result.name} (ID: ${result.dashboard_id})\n`;
+      output += `🔗 **URL:** ${result.url}\n`;
+      output += `🧩 **Cards Created:** ${result.card_count}\n`;
+      output += `🎛️ **Filters Configured:** ${result.filter_count}\n\n`;
+
+      output += `### 📐 24-Column Grid Layout & Cards:\n`;
+      output += `| Card Name | Display Type | Position (Row, Col) | Size (WxH) | Linked Filters |\n`;
+      output += `| --- | --- | --- | --- | --- |\n`;
+      for (const card of result.cards) {
+        const filterNames = (card.parameter_mappings || [])
+          .map(m => {
+            const filterDef = result.filters.find(f => f.id === m.parameter_id);
+            return filterDef ? filterDef.name : m.parameter_id;
+          })
+          .join(', ') || 'None';
+        output += `| **${card.name.replace(/\|/g, '\\|')}** | \`${card.display}\` | (${card.position.row}, ${card.position.col}) | ${card.position.size_x}x${card.position.size_y} | ${filterNames.replace(/\|/g, '\\|')} |\n`;
+      }
+
+      if (result.filters.length > 0) {
+        output += `\n### 🎛️ Dashboard Interactive Filters:\n`;
+        for (const f of result.filters) {
+          output += `- **${f.name}** (\`${f.slug}\`, type: \`${f.type}\`${f.default !== null ? `, default: ${JSON.stringify(f.default)}` : ''})\n`;
+        }
+      }
+
+      output += `\n🤖 _Generated autonomously with Metabase 24-column collision-free grid layout._`;
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: output,
+          },
+        ],
+        structuredContent: {
+          dashboard_id: result.dashboard_id,
+          name: result.name,
+          description: result.description,
+          url: result.url,
+          card_count: result.card_count,
+          filter_count: result.filter_count,
+          cards: result.cards.map(c => ({
+            card_id: c.card_id,
+            name: c.name,
+            display: c.display,
+            position: c.position,
+          })),
+          filters: result.filters,
+          _provenance: result._provenance,
+        },
+      };
+    } catch (error) {
+      logger.error('Failed to build full dashboard:', error);
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `❌ **Failed to build dashboard:** ${error.message}`,
+          },
+        ],
+      };
     }
   }
 

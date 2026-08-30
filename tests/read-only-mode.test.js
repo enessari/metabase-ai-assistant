@@ -47,6 +47,7 @@ describe('Read-Only Mode Enforcement Tests', () => {
         'mb_dashboard_create',
         'mb_dashboard_update',
         'mb_dashboard_delete',
+        'ai_dashboard_build_full',
         'mb_collection_create',
         'mb_collection_move',
         'mb_user_create',

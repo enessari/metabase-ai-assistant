@@ -1,5 +1,8 @@
 import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { logger } from '../../utils/logger.js';
+import { adviseQueryIndexes } from '../../analytics/index-advisor.js';
+import { detectAnomalies } from '../../analytics/anomaly-detector.js';
+import { structuredResult, structuredError } from '../../utils/structured-response.js';
 
 export class AnalyticsHandler {
   constructor(metabaseClient, metadataClient, activityLogger) {
@@ -14,6 +17,8 @@ export class AnalyticsHandler {
 
   routes() {
     return {
+      'ai_query_index_advisor': (args) => this.handleQueryIndexAdvisor(args),
+      'ai_analytics_detect_anomalies': (args) => this.handleDetectAnomalies(args),
       'mb_meta_query_performance': (args) => this.handleMetadataQueryPerformance(args),
       'mb_meta_content_usage': (args) => this.handleMetadataContentUsage(args),
       'mb_meta_user_activity': (args) => this.handleMetadataUserActivity(args),
@@ -1644,4 +1649,208 @@ export class AnalyticsHandler {
       return { content: [{ type: 'text', text: `❌ **Cleanup failed:** ${error.message}` }] };
     }
   }
+
+  // ============================================
+  // PHASE 3: AI ADVISORY & ANOMALY DETECTION HANDLERS
+  // ============================================
+
+  /**
+   * Handles ai_query_index_advisor: Advises composite indexes, covering indexes, and materialized views
+   * @param {object} args 
+   * @returns {Promise<object>}
+   */
+  async handleQueryIndexAdvisor(args) {
+    try {
+      let dialect = args.target_dialect || null;
+
+      // Auto-detect dialect from database if not explicitly passed
+      if (!dialect && args.database_id && this.metabaseClient && typeof this.metabaseClient.getDatabase === 'function') {
+        try {
+          const db = await this.metabaseClient.getDatabase(args.database_id);
+          if (db && db.engine) {
+            dialect = db.engine;
+          }
+        } catch (dbErr) {
+          logger.info(`Failed to retrieve database engine for dialect detection: ${dbErr.message}`);
+        }
+      }
+
+      const advisorResult = await adviseQueryIndexes({
+        databaseId: args.database_id,
+        sql: args.sql,
+        cardId: args.card_id,
+        runExplain: args.run_explain !== false,
+        workloadAnalysis: args.workload_analysis === true,
+        dialect: dialect || 'postgres',
+        metabaseClient: this.metabaseClient,
+      });
+
+      const formatter = (data) => {
+        let out = `⚠️ **[AI-GENERATED CONTENT — REVIEW BEFORE EXECUTING]**\n\n`;
+        out += `⚡ **AI Query Index & Materialized View Advisory**\n\n`;
+        out += `🗄️ **Target Dialect:** \`${data.dialect}\`${data.database_id ? ` | **Database ID:** ${data.database_id}` : ''}\n\n`;
+
+        // Query Analysis
+        const qa = data.query_analysis || {};
+        out += `🔍 **Query AST Analysis:**\n`;
+        out += `• **Tables:** ${qa.tables && qa.tables.length > 0 ? qa.tables.join(', ') : 'N/A'}\n`;
+        if (qa.filter_columns && qa.filter_columns.length > 0) {
+          out += `• **Filters:** ${qa.filter_columns.join(', ')}\n`;
+        }
+        if (qa.join_conditions && qa.join_conditions.length > 0) {
+          out += `• **Joins:** ${qa.join_conditions.join('; ')}\n`;
+        }
+        if (qa.group_by_columns && qa.group_by_columns.length > 0) {
+          out += `• **Group By:** ${qa.group_by_columns.join(', ')}\n`;
+        }
+        if (qa.order_by_columns && qa.order_by_columns.length > 0) {
+          out += `• **Order By:** ${qa.order_by_columns.join(', ')}\n`;
+        }
+        out += `\n`;
+
+        // Scans & Bottlenecks
+        if (qa.scans_detected && qa.scans_detected.length > 0) {
+          out += `🚨 **Detected Scans & Bottlenecks:**\n`;
+          qa.scans_detected.forEach(s => {
+            out += `• ⚠️ **${s.scan_type}** on table \`${s.table}\` (${s.impact} impact): ${s.reason}\n`;
+          });
+          out += `\n`;
+        }
+
+        // Index Recommendations
+        const idxRecs = data.index_recommendations || [];
+        out += `💡 **Recommended Indexes (${idxRecs.length}):**\n\n`;
+        if (idxRecs.length === 0) {
+          out += `✅ No urgent unindexed columns detected.\n\n`;
+        } else {
+          idxRecs.forEach((idx, i) => {
+            const priorityIcon = idx.priority === 'HIGH' ? '🔴' : idx.priority === 'MEDIUM' ? '🟡' : '🟢';
+            out += `${i + 1}. ${priorityIcon} **Table:** \`${idx.table}\` | **Columns:** (${idx.columns.join(', ')})\n`;
+            out += `   • **Priority:** ${idx.priority} | **Speedup:** ${idx.estimated_speedup}\n`;
+            out += `   • **Rationale:** ${idx.rationale}\n`;
+            out += `   \`\`\`sql\n   ${idx.ddl}\n   \`\`\`\n\n`;
+          });
+        }
+
+        // Materialized View Recommendations
+        const mvRecs = data.materialized_view_recommendations || [];
+        if (mvRecs.length > 0) {
+          out += `🔄 **Materialized View Opportunities (${mvRecs.length}):**\n\n`;
+          mvRecs.forEach((mv, i) => {
+            const priorityIcon = mv.priority === 'HIGH' ? '🔴' : '🟡';
+            out += `${i + 1}. ${priorityIcon} **View:** \`${mv.view_name}\` (Priority: ${mv.priority}, Speedup: ${mv.estimated_speedup})\n`;
+            out += `   • **Rationale:** ${mv.rationale}\n`;
+            out += `   \`\`\`sql\n${mv.ddl}\n   \`\`\`\n`;
+            if (mv.refresh_strategy) {
+              out += `   • **Refresh Strategy:**\n     \`${mv.refresh_strategy}\`\n`;
+            }
+            out += `\n`;
+          });
+        }
+
+        out += `📈 **Estimated Impact:** ${data.estimated_impact}\n`;
+        return out;
+      };
+
+      return structuredResult(advisorResult, formatter);
+    } catch (error) {
+      logger.error('Query index advisor failed:', error);
+      return structuredError(`❌ **Query index advisory failed:** ${error.message}`);
+    }
+  }
+
+  /**
+   * Handles ai_analytics_detect_anomalies: Detects anomalies on time series data
+   * @param {object} args 
+   * @returns {Promise<object>}
+   */
+  async handleDetectAnomalies(args) {
+    try {
+      let dataset = args.data || null;
+
+      // 1. Resolve data from Metabase Question/Card
+      if (!dataset && args.card_id && this.metabaseClient) {
+        if (typeof this.metabaseClient.runQuery === 'function') {
+          const cardQueryRes = await this.metabaseClient.runQuery({ type: 'card', card_id: args.card_id });
+          dataset = cardQueryRes;
+        } else if (typeof this.metabaseClient.getQuestion === 'function') {
+          const card = await this.metabaseClient.getQuestion(args.card_id);
+          if (card && card.dataset_query && card.database_id && typeof this.metabaseClient.executeNativeQuery === 'function') {
+            if (card.dataset_query.native && card.dataset_query.native.query) {
+              dataset = await this.metabaseClient.executeNativeQuery(card.database_id, card.dataset_query.native.query);
+            }
+          }
+        }
+      }
+
+      // 2. Resolve data from SQL Query
+      if (!dataset && args.sql && args.database_id && this.metabaseClient && typeof this.metabaseClient.executeNativeQuery === 'function') {
+        dataset = await this.metabaseClient.executeNativeQuery(args.database_id, args.sql);
+      }
+
+      // 3. Resolve data from Table Name
+      if (!dataset && args.table_name && args.database_id && this.metabaseClient && typeof this.metabaseClient.executeNativeQuery === 'function') {
+        const timeCol = args.time_column || 'created_at';
+        const metricCol = args.metric_column ? `SUM(${args.metric_column})` : 'COUNT(*)';
+        const sql = `SELECT ${timeCol} AS timestamp, ${metricCol} AS value FROM ${args.table_name} GROUP BY 1 ORDER BY 1 LIMIT 500;`;
+        dataset = await this.metabaseClient.executeNativeQuery(args.database_id, sql);
+      }
+
+      if (!dataset) {
+        return structuredError('❌ **Anomaly detection failed:** No valid dataset could be retrieved. Provide `sql` with `database_id`, `card_id`, `table_name`, or raw `data`.');
+      }
+
+      const result = detectAnomalies({
+        data: dataset,
+        timeColumn: args.time_column,
+        metricColumn: args.metric_column,
+        dimensionColumn: args.dimension_column,
+        method: args.method || 'auto',
+        sensitivity: args.sensitivity || 'medium',
+        direction: args.direction || 'both',
+        maxAnomalies: args.max_anomalies || 20,
+      });
+
+      const formatter = (data) => {
+        let out = `📈 **Proactive KPI Anomaly & Outlier Detection Report**\n\n`;
+        out += `• **Metric:** \`${data.metric_name}\` | **Time Column:** \`${data.time_column}\`${data.dimension_column ? ` | **Dimension:** \`${data.dimension_column}\`` : ''}\n`;
+        out += `• **Points Analyzed:** ${data.total_points_analyzed} | **Anomalies Detected:** ${data.anomalies_detected_count} (${data.summary?.critical_count || 0} Critical, ${data.summary?.warning_count || 0} Warning)\n`;
+        out += `• **Method:** \`${data.method_used}\` (Sensitivity: \`${data.sensitivity}\`)\n\n`;
+
+        if (data.sparkline) {
+          out += `📊 **Trend Sparkline:** \`${data.sparkline}\`\n\n`;
+        }
+
+        const b = data.baseline_summary || {};
+        out += `📋 **Baseline Summary:**\n`;
+        out += `• **Mean:** ${b.mean?.toLocaleString() || 0} | **Median:** ${b.median?.toLocaleString() || 0} | **Std Dev:** ${b.std_dev?.toLocaleString() || 0}\n`;
+        out += `• **Range:** [${b.min?.toLocaleString() || 0} - ${b.max?.toLocaleString() || 0}] | **Trend:** ${b.trend || 'stable'}\n\n`;
+
+        if (data.anomalies.length === 0) {
+          out += `✅ **No anomalies detected!** Metric behavior is within expected statistical baseline.\n`;
+        } else {
+          out += `🚨 **Detected Anomalies (${data.anomalies.length}):**\n\n`;
+          data.anomalies.forEach((a, i) => {
+            const icon = a.severity === 'CRITICAL' ? '🔴 CRITICAL' : a.severity === 'WARNING' ? '🟡 WARNING' : '🔵 INFO';
+            out += `${i + 1}. ${icon} [**${a.timestamp}**]: \`${a.actual_value?.toLocaleString()}\` (Expected: ~${a.expected_value?.toLocaleString()}, ${a.percentage_deviation > 0 ? '+' : ''}${a.percentage_deviation}%)\n`;
+            out += `   • **Deviation:** ${a.absolute_deviation > 0 ? '+' : ''}${a.absolute_deviation?.toLocaleString()} | **Score:** ${a.anomaly_score} | **Type:** ${a.type}\n`;
+            out += `   • **Algorithms Flagged:** ${a.methods_flagged ? a.methods_flagged.join(', ') : 'ensemble'}\n`;
+            out += `   • **Insight:** ${a.insight}\n`;
+            if (a.root_cause && a.root_cause.dimension) {
+              out += `   • 🔍 **Root Cause Driver:** \`${a.root_cause.dimension}\` = **${a.root_cause.top_contributor}** (${a.root_cause.contribution_pct}% contribution)\n`;
+            }
+            out += `\n`;
+          });
+        }
+
+        return out;
+      };
+
+      return structuredResult(result, formatter);
+    } catch (error) {
+      logger.error('Anomaly detection failed:', error);
+      return structuredError(`❌ **Anomaly detection failed:** ${error.message}`);
+    }
+  }
 }
+

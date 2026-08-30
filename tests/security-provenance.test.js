@@ -207,11 +207,15 @@ describe('Security Provenance Envelope & AI Boundary Tests (Issue #12)', () => {
   describe('Tool Registry Output Schemas', () => {
     test('all generative AI tools define _provenance in outputSchema', () => {
       const generativeTools = [
+        'ai_sql_execute_and_heal',
+        'ai_dashboard_build_full',
         'ai_sql_generate',
         'ai_sql_optimize',
         'ai_sql_explain',
         'ai_relationships_suggest',
         'mb_auto_describe',
+        'ai_query_index_advisor',
+        'ai_analytics_detect_anomalies',
       ];
 
       const tools = getToolDefinitions();

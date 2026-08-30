@@ -242,7 +242,7 @@ describe('Milestone 3: Metabase BI API Enhancements & Handlers Compatibility Tes
     });
   });
 
-  describe('Manifest & Config Synchronization (Version 4.2.1 & 133 tools)', () => {
+  describe('Manifest & Config Synchronization (Version 5.0.0 & 137 tools)', () => {
     test('server.json, smithery.yaml, manifest.json, and package.json are synchronized', () => {
       const pkg = JSON.parse(fs.readFileSync(path.resolve('package.json'), 'utf8'));
       const manifest = JSON.parse(fs.readFileSync(path.resolve('manifest.json'), 'utf8'));
@@ -250,17 +250,17 @@ describe('Milestone 3: Metabase BI API Enhancements & Handlers Compatibility Tes
       const smitheryYaml = fs.readFileSync(path.resolve('smithery.yaml'), 'utf8');
 
       // Check versions
-      expect(pkg.version).toBe('4.2.1');
-      expect(manifest.version).toBe('4.2.1');
-      expect(serverJson.version).toBe('4.2.1');
-      expect(serverJson.packages[0].version).toBe('4.2.1');
+      expect(pkg.version).toBe('5.0.0');
+      expect(manifest.version).toBe('5.0.0');
+      expect(serverJson.version).toBe('5.0.0');
+      expect(serverJson.packages[0].version).toBe('5.0.0');
 
       // Check tool count mentions
-      expect(pkg.description).toContain('133 tools');
-      expect(manifest.description).toContain('133 tools');
-      expect(manifest.long_description).toContain('133 specialized tools');
-      expect(serverJson.description).toContain('133 tools');
-      expect(smitheryYaml).toContain('133 tools');
+      expect(pkg.description).toContain('137 tools');
+      expect(manifest.description).toContain('137 tools');
+      expect(manifest.long_description).toContain('137 specialized tools');
+      expect(serverJson.description).toContain('137 tools');
+      expect(smitheryYaml).toContain('137 tools');
     });
   });
 });

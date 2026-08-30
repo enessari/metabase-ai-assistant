@@ -155,6 +155,90 @@ export const TOOL_METADATA = {
   db_vacuum_analyze: { title: 'Vacuum & Analyze', write: true, destructive: false, idempotent: true },
 
   // ── AI Features ──
+  ai_sql_execute_and_heal: {
+    title: 'Execute & Self-Heal SQL',
+    write: false,
+    destructive: false,
+    idempotent: true,
+    outputSchema: {
+      type: 'object',
+      properties: {
+        success: { type: 'boolean' },
+        original_sql: { type: 'string' },
+        final_sql: { type: 'string' },
+        attempts_used: { type: 'number' },
+        healed: { type: 'boolean' },
+        columns: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string' },
+              base_type: { type: 'string' },
+            },
+          },
+        },
+        rows: { type: 'array' },
+        row_count: { type: 'number' },
+        _provenance: PROVENANCE_SCHEMA,
+      },
+      required: ['success', 'original_sql', 'final_sql', '_provenance'],
+    },
+  },
+  ai_dashboard_build_full: {
+    title: 'Autonomous Full Dashboard Architect',
+    write: true,
+    destructive: false,
+    idempotent: false,
+    outputSchema: {
+      type: 'object',
+      properties: {
+        dashboard_id: { type: 'number' },
+        name: { type: 'string' },
+        description: { type: ['string', 'null'] },
+        url: { type: 'string' },
+        card_count: { type: 'number' },
+        filter_count: { type: 'number' },
+        cards: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              card_id: { type: 'number' },
+              name: { type: 'string' },
+              display: { type: 'string' },
+              position: {
+                type: 'object',
+                properties: {
+                  row: { type: 'number' },
+                  col: { type: 'number' },
+                  size_x: { type: 'number' },
+                  size_y: { type: 'number' },
+                },
+                required: ['row', 'col', 'size_x', 'size_y'],
+              },
+            },
+            required: ['card_id', 'name', 'position'],
+          },
+        },
+        filters: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              id: { type: 'string' },
+              name: { type: 'string' },
+              slug: { type: 'string' },
+              type: { type: 'string' },
+            },
+            required: ['id', 'name', 'type'],
+          },
+        },
+        _provenance: PROVENANCE_SCHEMA,
+      },
+      required: ['dashboard_id', 'name', 'url', 'card_count', 'cards', '_provenance'],
+    },
+  },
   ai_sql_generate: {
     title: 'Generate SQL with AI',
     outputSchema: {
@@ -220,6 +304,126 @@ export const TOOL_METADATA = {
         _provenance: PROVENANCE_SCHEMA,
       },
       required: ['suggestions', '_provenance'],
+    },
+  },
+  ai_query_index_advisor: {
+    title: 'AI Query Index & Materialized View Advisor',
+    outputSchema: {
+      type: 'object',
+      properties: {
+        sql: { type: 'string' },
+        database_id: { type: ['number', 'null'] },
+        dialect: { type: 'string' },
+        query_analysis: {
+          type: 'object',
+          properties: {
+            tables: { type: 'array', items: { type: 'string' } },
+            filter_columns: { type: 'array', items: { type: 'string' } },
+            join_conditions: { type: 'array', items: { type: 'string' } },
+            group_by_columns: { type: 'array', items: { type: 'string' } },
+            order_by_columns: { type: 'array', items: { type: 'string' } },
+            has_aggregations: { type: 'boolean' },
+            scans_detected: { type: 'array' },
+            bottlenecks: { type: 'array' },
+            explain_mode: { type: 'string' },
+          },
+        },
+        index_recommendations: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              table: { type: 'string' },
+              index_name: { type: 'string' },
+              columns: { type: 'array', items: { type: 'string' } },
+              index_type: { type: 'string' },
+              ddl: { type: 'string' },
+              priority: { type: 'string' },
+              estimated_speedup: { type: 'string' },
+              rationale: { type: 'string' },
+            },
+            required: ['table', 'index_name', 'columns', 'ddl', 'priority'],
+          },
+        },
+        materialized_view_recommendations: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              view_name: { type: 'string' },
+              ddl: { type: 'string' },
+              refresh_strategy: { type: 'string' },
+              priority: { type: 'string' },
+              estimated_speedup: { type: 'string' },
+              rationale: { type: 'string' },
+            },
+            required: ['view_name', 'ddl'],
+          },
+        },
+        estimated_impact: { type: 'string' },
+        _provenance: PROVENANCE_SCHEMA,
+      },
+      required: ['sql', 'dialect', 'query_analysis', 'index_recommendations', 'materialized_view_recommendations', '_provenance'],
+    },
+  },
+  ai_analytics_detect_anomalies: {
+    title: 'Proactive KPI Anomaly & Outlier Detector',
+    outputSchema: {
+      type: 'object',
+      properties: {
+        metric_name: { type: 'string' },
+        time_column: { type: 'string' },
+        dimension_column: { type: ['string', 'null'] },
+        total_points_analyzed: { type: 'number' },
+        anomalies_detected_count: { type: 'number' },
+        method_used: { type: 'string' },
+        sensitivity: { type: 'string' },
+        baseline_summary: {
+          type: 'object',
+          properties: {
+            mean: { type: 'number' },
+            median: { type: 'number' },
+            std_dev: { type: 'number' },
+            min: { type: 'number' },
+            max: { type: 'number' },
+            trend: { type: 'string' },
+          },
+        },
+        anomalies: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              timestamp: { type: ['string', 'number'] },
+              actual_value: { type: 'number' },
+              expected_value: { type: 'number' },
+              lower_bound: { type: 'number' },
+              upper_bound: { type: 'number' },
+              absolute_deviation: { type: 'number' },
+              percentage_deviation: { type: 'number' },
+              severity: { type: 'string' },
+              type: { type: 'string' },
+              anomaly_score: { type: 'number' },
+              methods_flagged: { type: 'array', items: { type: 'string' } },
+              insight: { type: 'string' },
+              root_cause: { type: ['object', 'null'] },
+            },
+            required: ['timestamp', 'actual_value', 'expected_value', 'severity', 'anomaly_score'],
+          },
+        },
+        summary: {
+          type: 'object',
+          properties: {
+            total_points: { type: 'number' },
+            anomaly_count: { type: 'number' },
+            critical_count: { type: 'number' },
+            warning_count: { type: 'number' },
+          },
+        },
+        sparkline: { type: 'string' },
+        _provenance: PROVENANCE_SCHEMA,
+      },
+      required: ['metric_name', 'time_column', 'total_points_analyzed', 'anomalies_detected_count', 'anomalies', '_provenance'],
     },
   },
   mb_auto_describe: {
@@ -1369,6 +1573,158 @@ export function getToolDefinitions() {
     },
     // === AI ASSISTANCE ===
     {
+      name: 'ai_sql_execute_and_heal',
+      description: 'Execute SQL query with autonomous self-healing: automatically intercepts syntax errors, missing columns, invalid tables, and group-by violations, inspects schema metadata, repairs the query up to 3 attempts, and returns verified results with complete healing audit trail.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          database_id: {
+            type: 'number',
+            description: 'Database ID to execute query on',
+          },
+          sql: {
+            type: 'string',
+            description: 'SQL query to execute and heal if errors occur',
+          },
+          max_attempts: {
+            type: 'number',
+            description: 'Maximum healing retry attempts (default: 3, max: 5)',
+          },
+          explanation: {
+            type: 'string',
+            description: 'Optional natural language explanation or intent for the query',
+          },
+          mask_pii: {
+            type: 'boolean',
+            description: 'Whether to mask sensitive PII in query results (default: true)',
+          },
+        },
+        required: ['database_id', 'sql'],
+      },
+    },
+    {
+      name: 'ai_dashboard_build_full',
+      description: 'Autonomously builds a complete Metabase dashboard in a single tool call with at least 4 analytical cards, optimal 24-column collision-free grid layout (KPI banners, trends, breakdowns, detail tables), and interactive parameter filter mappings.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          name: {
+            type: 'string',
+            description: 'Title of the dashboard to create',
+          },
+          description: {
+            type: 'string',
+            description: 'Description of the dashboard and its analytical purpose',
+          },
+          database_id: {
+            type: 'number',
+            description: 'Database ID to query for all card definitions',
+          },
+          collection_id: {
+            type: 'number',
+            description: 'Optional collection ID where dashboard and questions should be saved',
+          },
+          theme: {
+            type: 'string',
+            enum: ['executive', 'operational', 'analytical', 'marketing'],
+            default: 'executive',
+            description: 'Visual layout theme style',
+          },
+          cards: {
+            type: 'array',
+            description: 'List of at least 4 question/card specifications to create and place on the dashboard',
+            minItems: 4,
+            items: {
+              type: 'object',
+              properties: {
+                name: {
+                  type: 'string',
+                  description: 'Name/title of the question',
+                },
+                description: {
+                  type: 'string',
+                  description: 'Optional description of what the question shows',
+                },
+                sql: {
+                  type: 'string',
+                  description: 'SQL query for the question (supports {{template_tag}} parameter syntax)',
+                },
+                display: {
+                  type: 'string',
+                  enum: ['scalar', 'number', 'gauge', 'line', 'bar', 'area', 'combo', 'waterfall', 'pie', 'donut', 'row', 'funnel', 'progress', 'table', 'pivot'],
+                  default: 'table',
+                  description: 'Metabase visualization display type',
+                },
+                size_x: {
+                  type: 'number',
+                  description: 'Custom width on 24-column grid (optional)',
+                },
+                size_y: {
+                  type: 'number',
+                  description: 'Custom height in grid units (optional)',
+                },
+                row: {
+                  type: 'number',
+                  description: 'Custom row coordinate (optional)',
+                },
+                col: {
+                  type: 'number',
+                  description: 'Custom column coordinate (optional)',
+                },
+                parameter_name: {
+                  type: 'string',
+                  description: 'Template tag or parameter variable name in SQL to bind to dashboard filter',
+                },
+                visualization_settings: {
+                  type: 'object',
+                  description: 'Optional Metabase visualization formatting settings',
+                },
+              },
+              required: ['name', 'sql'],
+            },
+          },
+          filters: {
+            type: 'array',
+            description: 'Optional dashboard filter controls to create and link to card queries',
+            items: {
+              type: 'object',
+              properties: {
+                name: {
+                  type: 'string',
+                  description: 'Filter display label (e.g. "Date Range" or "Category")',
+                },
+                slug: {
+                  type: 'string',
+                  description: 'Filter slug identifier',
+                },
+                type: {
+                  type: 'string',
+                  description: 'Filter type (e.g. "date/all-options", "category", "string/=")',
+                },
+                default_value: {
+                  description: 'Optional default value for the filter',
+                },
+                target_variable: {
+                  type: 'string',
+                  description: 'Template tag variable name in card SQL queries to connect',
+                },
+                field_id: {
+                  type: 'number',
+                  description: 'Field ID for dimension-based filter mapping',
+                },
+              },
+              required: ['name', 'type'],
+            },
+          },
+          mask_pii: {
+            type: 'boolean',
+            description: 'Whether to mask sensitive PII in data samples (default: true)',
+          },
+        },
+        required: ['name', 'database_id', 'cards'],
+      },
+    },
+    {
       name: 'ai_sql_generate',
       description: 'Convert natural language requests into SQL queries - understands business context and table relationships',
       inputSchema: {
@@ -1769,6 +2125,102 @@ export function getToolDefinitions() {
           },
         },
         required: ['database_id', 'schema_name'],
+      },
+    },
+    {
+      name: 'ai_query_index_advisor',
+      description: 'Analyze SQL queries to identify table scans, recommend composite B-Tree indexes (Equality -> Range -> Sort/Group), covering/partial indexes, and materialized views with dialect-appropriate DDL',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          sql: {
+            type: 'string',
+            description: 'SQL query to analyze for performance bottlenecks, index opportunities, and materialized views',
+          },
+          database_id: {
+            type: 'number',
+            description: 'Metabase database ID where the query is targeted (used for engine detection and EXPLAIN execution)',
+          },
+          card_id: {
+            type: 'number',
+            description: 'Optional Metabase question/card ID to extract SQL and database_id from',
+          },
+          run_explain: {
+            type: 'boolean',
+            description: 'Whether to execute EXPLAIN plan on the target database (default: true)',
+            default: true,
+          },
+          workload_analysis: {
+            type: 'boolean',
+            description: 'Whether to cross-reference Metabase query execution history for frequency and latency (default: false)',
+            default: false,
+          },
+          target_dialect: {
+            type: 'string',
+            description: 'Optional explicit database dialect override',
+            enum: ['postgres', 'mysql', 'sqlite', 'bigquery', 'snowflake', 'redshift', 'clickhouse', 'sqlserver', 'oracle', 'generic'],
+          },
+        },
+      },
+    },
+    {
+      name: 'ai_analytics_detect_anomalies',
+      description: 'Proactively detect statistical anomalies, outliers, and step shifts in time-series and metric data using Z-score/MAD, IQR, Bollinger bands, seasonal decomposition, and period delta with dimensional root-cause analysis',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          sql: {
+            type: 'string',
+            description: 'SQL query returning time-series or metric data to analyze for anomalies',
+          },
+          database_id: {
+            type: 'number',
+            description: 'Database ID to execute the SQL query against',
+          },
+          card_id: {
+            type: 'number',
+            description: 'Optional Metabase question/card ID to fetch dataset from',
+          },
+          table_name: {
+            type: 'string',
+            description: 'Optional table name to automatically generate time-series aggregation query',
+          },
+          time_column: {
+            type: 'string',
+            description: 'Name of the time/date column (auto-detected if not specified)',
+          },
+          metric_column: {
+            type: 'string',
+            description: 'Name of the numeric metric column to evaluate (auto-detected if not specified)',
+          },
+          dimension_column: {
+            type: 'string',
+            description: 'Optional segmentation column (e.g. region, category, channel) for root-cause drilldown',
+          },
+          method: {
+            type: 'string',
+            description: 'Statistical anomaly detection algorithm',
+            enum: ['auto', 'z_score', 'modified_z_score', 'iqr', 'moving_average', 'seasonal_decomposition', 'percentage_delta'],
+            default: 'auto',
+          },
+          sensitivity: {
+            type: 'string',
+            description: 'Sensitivity threshold (low, medium, high)',
+            enum: ['low', 'medium', 'high'],
+            default: 'medium',
+          },
+          direction: {
+            type: 'string',
+            description: 'Direction of anomalies to flag (both, spike, drop)',
+            enum: ['both', 'spike', 'drop'],
+            default: 'both',
+          },
+          max_anomalies: {
+            type: 'number',
+            description: 'Maximum number of anomaly points to return in report (default: 20)',
+            default: 20,
+          },
+        },
       },
     },
     {

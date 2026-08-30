@@ -24,6 +24,7 @@ export const WRITE_TOOLS = new Set([
     'mb_dashboard_add_card', 'mb_dashboard_add_card_sql', 'mb_dashboard_update_layout',
     'mb_dashboard_card_update', 'mb_dashboard_card_remove', 'mb_dashboard_add_filter',
     'mb_dashboard_layout_optimize', 'mb_dashboard_template_executive',
+    'ai_dashboard_build_full',
     // Direct SQL dashboard
     'mb_create_parametric_question', 'mb_link_dashboard_filter',
     // Collection mutations

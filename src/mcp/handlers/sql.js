@@ -8,6 +8,8 @@ import {
 } from '../../utils/response-optimizer.js';
 import { isReadOnlyMode, detectWriteOperation } from './database.js';
 import { BaseHandler } from './base.js';
+import { maskRow, isPiiMaskingEnabled } from '../../utils/pii-masker.js';
+import { executeAndHealSQL } from '../../ai/sql-healing-engine.js';
 
 /**
  * Handler for SQL Execution Operations
@@ -31,6 +33,7 @@ export class SqlHandler extends BaseHandler {
       'sql_submit': (args) => this.handleSQLSubmit(args),
       'sql_status': (args) => this.handleSQLStatus(args),
       'sql_cancel': (args) => this.handleSQLCancel(args),
+      'ai_sql_execute_and_heal': (args) => this.handleExecuteAndHealSQL(args),
     };
   }
 
@@ -75,8 +78,19 @@ export class SqlHandler extends BaseHandler {
       }
 
       // Format the result for display
-      const rows = result.data.rows || [];
-      const columns = result.data.cols || [];
+      const rawRows = result.data?.rows || [];
+      const columns = result.data?.cols || [];
+      const columnNames = columns.map(col => (typeof col === 'object' && col !== null ? (col.name || col.display_name || '') : String(col)));
+
+      const maskingEnabled = isPiiMaskingEnabled(args);
+      const maskOptions = {
+        strict: args.mask_strict === true,
+        preserveDomain: args.preserve_domain !== false,
+        pseudonymize: args.pseudonymize === true,
+        salt: args.salt || 'metabase_ai_salt',
+      };
+
+      const rows = maskingEnabled ? rawRows.map(row => maskRow(row, columnNames, maskOptions)) : rawRows;
 
       let output = `✅ **Query successful** (${executionTime}ms)\n`;
       output += `📊 ${columns.length} columns, ${rows.length} rows\n\n`;
@@ -302,6 +316,8 @@ export class SqlHandler extends BaseHandler {
       output += `📊 Status: ${job.status}\n`;
       output += `⏱️ Elapsed: ${elapsedSeconds} seconds\n`;
 
+      let rows = [];
+
       if (job.status === 'running' || job.status === 'pending') {
         let waitSeconds = 3;
         if (elapsedSeconds > 60) waitSeconds = 30;
@@ -311,8 +327,19 @@ export class SqlHandler extends BaseHandler {
         output += `\n💡 Query is still running. Please wait **${waitSeconds} seconds** before checking again.\n`;
         output += `(Use \`sql_cancel\` to stop if needed)`;
       } else if (job.status === 'complete') {
-        const rows = job.result?.data?.rows || [];
+        const rawRows = job.result?.data?.rows || [];
         const columns = job.result?.data?.cols || [];
+        const columnNames = columns.map(col => (typeof col === 'object' && col !== null ? (col.name || col.display_name || '') : String(col)));
+
+        const maskingEnabled = isPiiMaskingEnabled(args);
+        const maskOptions = {
+          strict: args.mask_strict === true,
+          preserveDomain: args.preserve_domain !== false,
+          pseudonymize: args.pseudonymize === true,
+          salt: args.salt || 'metabase_ai_salt',
+        };
+
+        rows = maskingEnabled ? rawRows.map(row => maskRow(row, columnNames, maskOptions)) : rawRows;
 
         output += `✅ **Query Complete!**\n`;
         output += `📊 ${columns.length} columns, ${rows.length} rows\n\n`;
@@ -351,7 +378,7 @@ export class SqlHandler extends BaseHandler {
           ...(job.status === 'complete' && job.result ? {
             result: {
               columns: (job.result.data?.cols || []).map(c => ({ name: c.name })),
-              rows: (job.result.data?.rows || []).slice(0, 200),
+              rows: rows.slice(0, 200),
               row_count: (job.result.data?.rows || []).length,
             }
           } : {}),
@@ -649,6 +676,171 @@ export class SqlHandler extends BaseHandler {
         }],
       };
     }
+  }
+
+  /**
+   * Autonomous Self-Healing SQL Execution Handler
+   * Intercepts SQL errors, applies deterministic or LLM repairs, retries up to max_attempts,
+   * and records complete audit trail in _provenance.healing_trail.
+   */
+  async handleExecuteAndHealSQL(args) {
+    const databaseId = args.database_id;
+    const sql = args.sql;
+    const maxAttempts = args.max_attempts || 3;
+    const explanation = args.explanation || '';
+    const fullResults = args.full_results === true;
+
+    if (!databaseId) {
+      throw new Error('database_id is required for ai_sql_execute_and_heal');
+    }
+    if (!sql) {
+      throw new Error('sql is required for ai_sql_execute_and_heal');
+    }
+
+    // Read-Only Mode Security Check on original query
+    if (isReadOnlyMode()) {
+      const blockedOperation = detectWriteOperation(sql);
+      if (blockedOperation) {
+        logger.warn(`Read-only mode: Blocked ${blockedOperation} operation in ai_sql_execute_and_heal`, { sql: sql.substring(0, 100) });
+
+        return {
+          content: [
+            {
+              type: 'text',
+              text: `🔒 **Read-Only Mode Active**\n\n` +
+                `⛔ **Operation Blocked:** \`${blockedOperation}\`\n\n` +
+                `This MCP server is running in read-only mode for security.\n` +
+                `Write operations (INSERT, UPDATE, DELETE, DROP, etc.) are not allowed.\n\n` +
+                `To enable write operations, set \`METABASE_READ_ONLY_MODE=false\` in your environment.\n\n` +
+                `🔍 **Attempted Query:**\n\`\`\`sql\n${sql.substring(0, 200)}${sql.length > 200 ? '...' : ''}\n\`\`\``,
+            },
+          ],
+        };
+      }
+    }
+
+    const maskOptions = {
+      strict: args.mask_strict === true,
+      preserveDomain: args.preserve_domain !== false,
+      pseudonymize: args.pseudonymize === true,
+      salt: args.salt || 'metabase_ai_salt',
+    };
+
+    const startTime = Date.now();
+    const result = await executeAndHealSQL({
+      databaseId,
+      sql,
+      maxAttempts,
+      client: this.metabaseClient,
+      assistant: this.aiAssistant,
+      maskPii: args.mask_pii !== false && args.maskPii !== false,
+      maskOptions,
+      explanation,
+    });
+    const executionTime = Date.now() - startTime;
+
+    // Log activity if logger present
+    if (this.activityLogger) {
+      await this.activityLogger.logActivity({
+        operation_type: 'ai_sql_execute_and_heal',
+        operation_category: 'query',
+        database_id: databaseId,
+        source_sql: sql,
+        execution_time_ms: executionTime,
+        status: result.success ? 'success' : 'error',
+        error_message: result.error || null,
+        metadata: {
+          attempts_used: result.attempts_used,
+          healed: result.healed,
+          final_sql: result.final_sql,
+        },
+      });
+    }
+
+    const rows = result.data?.rows || [];
+    const columns = result.data?.columns || [];
+
+    let output = '';
+    if (result.success) {
+      if (result.healed) {
+        output += `✅ **Query healed & executed successfully** (${result.attempts_used} attempts used, ${executionTime}ms)\n`;
+        output += `📊 ${columns.length} columns, ${rows.length} rows\n\n`;
+
+        output += `🛠️ **Autonomous Healing Summary:**\n`;
+        output += `| Attempt | Error Category | Root Cause / Diagnosis | Corrected SQL |\n`;
+        output += `| --- | --- | --- | --- |\n`;
+        for (const trail of result.healing_trail) {
+          const shortSql = trail.corrected_sql
+            ? (trail.corrected_sql.length > 50 ? trail.corrected_sql.substring(0, 47) + '...' : trail.corrected_sql)
+            : '—';
+          output += `| ${trail.attempt} | \`${trail.error_category}\` | ${(trail.diagnosis || '').replace(/\|/g, '\\|')} | \`${shortSql.replace(/\|/g, '\\|')}\` |\n`;
+        }
+        output += `\n**Final Executed SQL:**\n\`\`\`sql\n${result.final_sql}\n\`\`\`\n\n`;
+      } else {
+        output += `✅ **Query successful** (executed on 1st attempt, ${executionTime}ms)\n`;
+        output += `📊 ${columns.length} columns, ${rows.length} rows\n\n`;
+      }
+
+      if (rows.length > 0) {
+        output += `**Data:**\n\`\`\`\n`;
+        const headers = columns.map(col => col.name || col);
+        output += headers.join(' | ') + '\n';
+        output += headers.map(() => '---').join(' | ') + '\n';
+
+        rows.slice(0, 5).forEach((row) => {
+          const formattedRow = row.map(cell => {
+            if (cell === null) return 'NULL';
+            let truncateLimit = fullResults || rows.length <= 2 ? 50000 : 100;
+            if (typeof cell === 'string' && cell.length > truncateLimit) {
+              return cell.substring(0, truncateLimit - 3) + '...';
+            }
+            return String(cell);
+          });
+          output += formattedRow.join(' | ') + '\n';
+        });
+        output += '\`\`\`\n';
+
+        if (rows.length > 5) {
+          output += `_+${rows.length - 5} more rows_\n`;
+        }
+      } else {
+        output += `ℹ️ Query executed successfully but returned 0 rows.\n`;
+      }
+    } else {
+      output += `❌ **Query execution & healing failed** after ${result.attempts_used} attempts\n\n`;
+      output += `**Last Error:** \`${result.error}\`\n\n`;
+      if (result.healing_trail.length > 0) {
+        output += `🛠️ **Healing Audit Trail:**\n`;
+        for (const trail of result.healing_trail) {
+          output += `- **Attempt ${trail.attempt}** [${trail.error_category}]: ${trail.error_message}\n  _Diagnosis_: ${trail.diagnosis}\n`;
+        }
+      }
+    }
+
+    return {
+      content: [
+        {
+          type: 'text',
+          text: output,
+        },
+      ],
+      structuredContent: {
+        success: result.success,
+        original_sql: result.original_sql,
+        final_sql: result.final_sql,
+        attempts_used: result.attempts_used,
+        healed: result.healed,
+        columns: columns.map(c => ({
+          name: typeof c === 'object' && c ? (c.name || c.display_name || '') : String(c),
+          base_type: typeof c === 'object' && c ? (c.base_type || c.type || 'unknown') : 'unknown',
+        })),
+        rows: rows.slice(0, fullResults ? rows.length : 200),
+        row_count: rows.length,
+        execution_time_ms: executionTime,
+        truncated: rows.length > 200 && !fullResults,
+        _provenance: result._provenance,
+      },
+    };
   }
 
 }

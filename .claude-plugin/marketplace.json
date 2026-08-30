@@ -5,16 +5,16 @@
     "email": "contact@onmartech.com"
   },
   "metadata": {
-    "description": "MCP Server for Metabase - 133 tools for AI-powered SQL generation, dashboard automation, and enterprise BI",
-    "version": "4.2.1",
+    "description": "MCP Server for Metabase - 137 tools for autonomous self-healing SQL, dashboard architecting, and enterprise BI",
+    "version": "5.0.0",
     "homepage": "https://github.com/enessari/metabase-ai-assistant"
   },
   "plugins": [
     {
       "name": "metabase-ai-assistant",
       "source": ".",
-      "description": "MCP Server for Metabase with 133 tools for AI-powered SQL generation, dashboard automation, and enterprise BI",
-      "version": "4.2.1",
+      "description": "MCP Server for Metabase with 137 tools for autonomous self-healing SQL, dashboard architecting, and enterprise BI",
+      "version": "5.0.0",
       "author": {
         "name": "Abdullah Enes SARI",
         "email": "contact@onmartech.com"
