@@ -2,9 +2,9 @@
     "dxt_version": "0.3",
     "name": "metabase-ai-assistant",
     "display_name": "Metabase AI Assistant",
-    "version": "4.2.0",
-    "description": "The most powerful MCP Server for Metabase — 134 tools with AI-powered SQL generation, dashboard automation, user management & enterprise BI.",
-    "long_description": "Connect Claude to your Metabase instance with 134 specialized tools.\n\n**Features:**\n- SQL execution & AI-powered generation\n- Dashboard creation & automation\n- Schema exploration & relationship detection\n- User & permission management\n- Query performance analytics\n- Collection & bookmark management\n- Embedding & visualization controls\n- Export/import workspace migration\n\nRequires a running Metabase instance with API access.",
+    "version": "4.2.1",
+    "description": "The most powerful MCP Server for Metabase — 133 tools with AI-powered SQL generation, dashboard automation, user management & enterprise BI.",
+    "long_description": "Connect Claude to your Metabase instance with 133 specialized tools.\n\n**Features:**\n- SQL execution & AI-powered generation\n- Dashboard creation & automation\n- Schema exploration & relationship detection\n- User & permission management\n- Query performance analytics\n- Collection & bookmark management\n- Embedding & visualization controls\n- Export/import workspace migration\n\nRequires a running Metabase instance with API access.",
     "author": {
         "name": "ONMARTECH LLC",
         "email": "contact@onmartech.com",

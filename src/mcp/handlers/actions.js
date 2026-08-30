@@ -1,9 +1,8 @@
-import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
-import { logger } from '../../utils/logger.js';
+import { BaseHandler } from './base.js';
 
-export class ActionsHandler {
-    constructor(metabaseClient) {
-        this.metabaseClient = metabaseClient;
+export class ActionsHandler extends BaseHandler {
+    constructor(contextOrClient) {
+        super(contextOrClient);
     }
 
     routes() {
@@ -19,8 +18,6 @@ export class ActionsHandler {
 
   async handleActionCreate(args) {
     try {
-      await this.ensureInitialized();
-
       const actionData = {
         name: args.name,
         description: args.description || '',
@@ -37,11 +34,11 @@ export class ActionsHandler {
       return {
         content: [{
           type: 'text',
-          text: `✅ **Action Created!**\\n\\n` +
-            `🆔 Action ID: ${action.id}\\n` +
-            `📋 Name: ${action.name}\\n` +
-            `⚙️ Type: ${action.type}\\n` +
-            `📊 Model ID: ${args.model_id}\\n` +
+          text: `✅ **Action Created!**\n\n` +
+            `🆔 Action ID: ${action.id}\n` +
+            `📋 Name: ${action.name}\n` +
+            `⚙️ Type: ${action.type}\n` +
+            `📊 Model ID: ${args.model_id}\n` +
             `🔧 Parameters: ${(args.parameters || []).length}`
         }]
       };
@@ -55,18 +52,16 @@ export class ActionsHandler {
 
   async handleActionList(args) {
     try {
-      await this.ensureInitialized();
-
       const actions = await this.metabaseClient.request('GET', `/api/action?model-id=${args.model_id}`);
 
-      let output = `📋 **Actions for Model ${args.model_id}**\\n\\n`;
+      let output = `📋 **Actions for Model ${args.model_id}**\n\n`;
 
       if (actions.length === 0) {
         output += 'No actions found for this model.';
       } else {
         actions.forEach((action, i) => {
-          output += `${i + 1}. **${action.name}** (ID: ${action.id})\\n`;
-          output += `   Type: ${action.type}\\n`;
+          output += `${i + 1}. **${action.name}** (ID: ${action.id})\n`;
+          output += `   Type: ${action.type}\n`;
         });
       }
 
@@ -83,8 +78,6 @@ export class ActionsHandler {
 
   async handleActionExecute(args) {
     try {
-      await this.ensureInitialized();
-
       const result = await this.metabaseClient.request('POST', `/api/action/${args.action_id}/execute`, {
         parameters: args.parameters
       });
@@ -92,9 +85,9 @@ export class ActionsHandler {
       return {
         content: [{
           type: 'text',
-          text: `✅ **Action Executed!**\\n\\n` +
-            `🆔 Action ID: ${args.action_id}\\n` +
-            `📋 Parameters: ${JSON.stringify(args.parameters)}\\n` +
+          text: `✅ **Action Executed!**\n\n` +
+            `🆔 Action ID: ${args.action_id}\n` +
+            `📋 Parameters: ${JSON.stringify(args.parameters)}\n` +
             `📊 Result: ${JSON.stringify(result)}`
         }]
       };
@@ -110,8 +103,6 @@ export class ActionsHandler {
 
   async handleAlertCreate(args) {
     try {
-      await this.ensureInitialized();
-
       const alertData = {
         card: { id: args.card_id },
         alert_condition: args.alert_condition || 'rows',
@@ -130,10 +121,10 @@ export class ActionsHandler {
       return {
         content: [{
           type: 'text',
-          text: `✅ **Alert Created!**\\n\\n` +
-            `🆔 Alert ID: ${alert.id}\\n` +
-            `🔔 Card ID: ${args.card_id}\\n` +
-            `⚙️ Condition: ${args.alert_condition || 'rows'}\\n` +
+          text: `✅ **Alert Created!**\n\n` +
+            `🆔 Alert ID: ${alert.id}\n` +
+            `🔔 Card ID: ${args.card_id}\n` +
+            `⚙️ Condition: ${args.alert_condition || 'rows'}\n` +
             `📧 Channels: ${(args.channels || []).length}`
         }]
       };
@@ -147,8 +138,6 @@ export class ActionsHandler {
 
   async handleAlertList(args) {
     try {
-      await this.ensureInitialized();
-
       let endpoint = '/api/alert';
       if (args.card_id) {
         endpoint = `/api/alert/question/${args.card_id}`;
@@ -156,15 +145,15 @@ export class ActionsHandler {
 
       const alerts = await this.metabaseClient.request('GET', endpoint);
 
-      let output = `🔔 **Alerts**\\n\\n`;
+      let output = `🔔 **Alerts**\n\n`;
 
       if (alerts.length === 0) {
         output += 'No alerts found.';
       } else {
         alerts.forEach((alert, i) => {
-          output += `${i + 1}. Alert ID: ${alert.id}\\n`;
-          output += `   Card: ${alert.card?.name || alert.card?.id}\\n`;
-          output += `   Condition: ${alert.alert_condition}\\n\\n`;
+          output += `${i + 1}. Alert ID: ${alert.id}\n`;
+          output += `   Card: ${alert.card?.name || alert.card?.id}\n`;
+          output += `   Condition: ${alert.alert_condition}\n\n`;
         });
       }
 
@@ -181,8 +170,6 @@ export class ActionsHandler {
 
   async handlePulseCreate(args) {
     try {
-      await this.ensureInitialized();
-
       const pulseData = {
         name: args.name,
         cards: args.cards,
@@ -196,10 +183,10 @@ export class ActionsHandler {
       return {
         content: [{
           type: 'text',
-          text: `✅ **Scheduled Report (Pulse) Created!**\\n\\n` +
-            `🆔 Pulse ID: ${pulse.id}\\n` +
-            `📋 Name: ${pulse.name}\\n` +
-            `📊 Cards: ${args.cards.length}\\n` +
+          text: `✅ **Scheduled Report (Pulse) Created!**\n\n` +
+            `🆔 Pulse ID: ${pulse.id}\n` +
+            `📋 Name: ${pulse.name}\n` +
+            `📊 Cards: ${args.cards.length}\n` +
             `📧 Channels: ${args.channels.length}`
         }]
       };

@@ -1,9 +1,8 @@
-import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
-import { logger } from '../../utils/logger.js';
+import { BaseHandler } from './base.js';
 
-export class UsersHandler {
-  constructor(metabaseClient) {
-    this.metabaseClient = metabaseClient;
+export class UsersHandler extends BaseHandler {
+  constructor(contextOrClient) {
+    super(contextOrClient);
   }
 
   routes() {
@@ -22,7 +21,6 @@ export class UsersHandler {
   }
 
   async handleUserList(args) {
-    await this.ensureInitialized();
     const { status = 'all', group_id } = args;
 
     try {
@@ -45,13 +43,14 @@ export class UsersHandler {
         content: [{
           type: 'text',
           text: `Found ${users.length} users:\n${users.map(u =>
-            `  - [${u.id}] ${u.first_name} ${u.last_name} (${u.email}) - ${u.is_active ? 'Active' : 'Inactive'}${u.is_superuser ? ' [Admin]' : ''}`
+            `  - [${u.id}] ${u.first_name || ''} ${u.last_name || ''} (${u.email}) - ${u.is_active ? 'Active' : 'Inactive'}${u.is_superuser ? ' [Admin]' : ''}`
           ).join('\n')}`
         }],
         structuredContent: {
           users: users.map(u => ({
             id: u.id, email: u.email,
-            first_name: u.first_name, last_name: u.last_name,
+            first_name: u.first_name ?? null,
+            last_name: u.last_name ?? null,
             is_active: u.is_active,
           })),
           count: users.length,
@@ -63,7 +62,6 @@ export class UsersHandler {
   }
 
   async handleUserGet(args) {
-    await this.ensureInitialized();
     const { user_id } = args;
 
     try {
@@ -74,7 +72,7 @@ export class UsersHandler {
           type: 'text',
           text: `User Details:\n` +
             `  ID: ${user.id}\n` +
-            `  Name: ${user.first_name} ${user.last_name}\n` +
+            `  Name: ${user.first_name || ''} ${user.last_name || ''}\n` +
             `  Email: ${user.email}\n` +
             `  Active: ${user.is_active}\n` +
             `  Superuser: ${user.is_superuser}\n` +
@@ -89,7 +87,6 @@ export class UsersHandler {
   }
 
   async handleUserCreate(args) {
-    await this.ensureInitialized();
     const { email, first_name, last_name, password, group_ids } = args;
 
     try {
@@ -108,7 +105,7 @@ export class UsersHandler {
           type: 'text',
           text: `✅ User created successfully:\n` +
             `  ID: ${user.id}\n` +
-            `  Name: ${user.first_name} ${user.last_name}\n` +
+            `  Name: ${user.first_name || ''} ${user.last_name || ''}\n` +
             `  Email: ${user.email}`
         }]
       };
@@ -118,7 +115,6 @@ export class UsersHandler {
   }
 
   async handleUserUpdate(args) {
-    await this.ensureInitialized();
     const { user_id, ...updates } = args;
 
     try {
@@ -136,7 +132,6 @@ export class UsersHandler {
   }
 
   async handleUserDisable(args) {
-    await this.ensureInitialized();
     const { user_id } = args;
 
     try {
@@ -156,8 +151,6 @@ export class UsersHandler {
   // ==================== PERMISSION GROUP HANDLERS ====================
 
   async handlePermissionGroupList(args) {
-    await this.ensureInitialized();
-
     try {
       const groups = await this.metabaseClient.request('GET', '/api/permissions/group');
 
@@ -175,7 +168,6 @@ export class UsersHandler {
   }
 
   async handlePermissionGroupCreate(args) {
-    await this.ensureInitialized();
     const { name } = args;
 
     try {
@@ -193,7 +185,6 @@ export class UsersHandler {
   }
 
   async handlePermissionGroupDelete(args) {
-    await this.ensureInitialized();
     const { group_id } = args;
 
     try {
@@ -211,7 +202,6 @@ export class UsersHandler {
   }
 
   async handlePermissionGroupAddUser(args) {
-    await this.ensureInitialized();
     const { group_id, user_id } = args;
 
     try {
@@ -232,7 +222,6 @@ export class UsersHandler {
   }
 
   async handlePermissionGroupRemoveUser(args) {
-    await this.ensureInitialized();
     const { group_id, user_id } = args;
 
     try {

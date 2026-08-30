@@ -13,7 +13,23 @@
  * Tools not listed here get default annotations (readOnly=true).
  * destructiveHint=true means data loss is possible if misused.
  */
-const TOOL_METADATA = {
+// ── AI Provenance Schema ──
+const PROVENANCE_SCHEMA = {
+  type: 'object',
+  description: 'AI Provenance metadata envelope for tracking generative AI authorship and review requirements',
+  properties: {
+    ai_generated: { type: 'boolean' },
+    tool: { type: 'string' },
+    review_required: { type: 'boolean' },
+    timestamp: { type: 'string' },
+    provider: { type: 'string' },
+    model: { type: 'string' },
+    generation_parameters: { type: 'object' },
+  },
+  required: ['ai_generated', 'tool', 'review_required', 'timestamp'],
+};
+
+export const TOOL_METADATA = {
   // ── Database Exploration (read-only) ──
   db_list: {
     title: 'List Databases', outputSchema: {
@@ -138,12 +154,90 @@ const TOOL_METADATA = {
   db_ai_drop: { title: 'Drop AI Object', write: true, destructive: true, idempotent: true },
   db_vacuum_analyze: { title: 'Vacuum & Analyze', write: true, destructive: false, idempotent: true },
 
-  // ── AI Features (read-only) ──
-  ai_sql_generate: { title: 'Generate SQL with AI' },
-  ai_sql_optimize: { title: 'Optimize SQL with AI' },
-  ai_sql_explain: { title: 'Explain SQL with AI' },
-  ai_relationships_suggest: { title: 'Suggest Relationships with AI' },
-  mb_auto_describe: { title: 'Auto-Describe with AI' },
+  // ── AI Features ──
+  ai_sql_generate: {
+    title: 'Generate SQL with AI',
+    outputSchema: {
+      type: 'object',
+      properties: {
+        sql: { type: 'string' },
+        description: { type: 'string' },
+        database_id: { type: 'number' },
+        _provenance: PROVENANCE_SCHEMA,
+      },
+      required: ['sql', '_provenance'],
+    },
+  },
+  ai_sql_optimize: {
+    title: 'Optimize SQL with AI',
+    outputSchema: {
+      type: 'object',
+      properties: {
+        original_sql: { type: 'string' },
+        optimized_sql: { type: 'string' },
+        optimizations: { type: 'array', items: { type: 'string' } },
+        improvements: { type: ['string', 'null'] },
+        _provenance: PROVENANCE_SCHEMA,
+      },
+      required: ['_provenance'],
+    },
+  },
+  ai_sql_explain: {
+    title: 'Explain SQL with AI',
+    outputSchema: {
+      type: 'object',
+      properties: {
+        sql: { type: 'string' },
+        explanation: { type: 'string' },
+        _provenance: PROVENANCE_SCHEMA,
+      },
+      required: ['explanation', '_provenance'],
+    },
+  },
+  ai_relationships_suggest: {
+    title: 'Suggest Relationships with AI',
+    outputSchema: {
+      type: 'object',
+      properties: {
+        schema_name: { type: 'string' },
+        database_id: { type: 'number' },
+        confidence_threshold: { type: 'number' },
+        suggestions: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              sourceTable: { type: 'string' },
+              sourceColumn: { type: 'string' },
+              targetTable: { type: 'string' },
+              targetColumn: { type: 'string' },
+              confidence: { type: 'number' },
+              relationshipType: { type: 'string' },
+              reasoning: { type: 'string' },
+            },
+          },
+        },
+        _provenance: PROVENANCE_SCHEMA,
+      },
+      required: ['suggestions', '_provenance'],
+    },
+  },
+  mb_auto_describe: {
+    title: 'Auto-Describe with AI',
+    write: true,
+    destructive: false,
+    idempotent: true,
+    outputSchema: {
+      type: 'object',
+      properties: {
+        database_id: { type: 'number' },
+        target_type: { type: 'string' },
+        updated: { type: 'object' },
+        _provenance: PROVENANCE_SCHEMA,
+      },
+      required: ['_provenance'],
+    },
+  },
 
   // ── Cards / Questions ──
   mb_question_create: { title: 'Create Question', write: true, destructive: false, idempotent: false },
@@ -168,8 +262,9 @@ const TOOL_METADATA = {
       type: 'object',
       properties: {
         id: { type: 'number' }, name: { type: 'string' },
-        description: { type: 'string' }, display: { type: 'string' },
-        database_id: { type: 'number' }, collection_id: { type: 'number' },
+        description: { type: ['string', 'null'] }, display: { type: 'string' },
+        database_id: { type: 'number' }, collection_id: { type: ['number', 'null'] },
+        dataset_query: { type: 'object' },
         archived: { type: 'boolean' },
         created_at: { type: 'string' }, updated_at: { type: 'string' }
       }, required: ['id', 'name', 'display']
@@ -208,7 +303,8 @@ const TOOL_METADATA = {
       type: 'object',
       properties: {
         id: { type: 'number' }, name: { type: 'string' },
-        description: { type: 'string' },
+        description: { type: ['string', 'null'] },
+        collection_id: { type: ['number', 'null'] },
         cards: { type: 'array' }, parameters: { type: 'array' }
       }, required: ['id', 'name']
     }
@@ -261,7 +357,7 @@ const TOOL_METADATA = {
           type: 'array', items: {
             type: 'object', properties: {
               id: { type: 'number' }, email: { type: 'string' },
-              first_name: { type: 'string' }, last_name: { type: 'string' },
+              first_name: { type: ['string', 'null'] }, last_name: { type: ['string', 'null'] },
               is_active: { type: 'boolean' }
             }, required: ['id', 'email']
           }
@@ -1594,20 +1690,6 @@ export function getToolDefinitions() {
           },
         },
         required: ['database_id', 'schema_name'],
-      },
-    },
-    {
-      name: 'db_test_speed',
-      description: 'Quick test to check database connection and response time',
-      inputSchema: {
-        type: 'object',
-        properties: {
-          database_id: {
-            type: 'number',
-            description: 'Database ID to test',
-          },
-        },
-        required: ['database_id'],
       },
     },
     {
@@ -2991,7 +3073,7 @@ export function getToolDefinitions() {
     },
     {
       name: 'mb_card_data',
-      description: 'Execute a card/question and get the results in specified format',
+      description: 'Execute a card/question and get the results in specified format (JSON, CSV, XLSX)',
       inputSchema: {
         type: 'object',
         properties: {
@@ -3005,9 +3087,36 @@ export function getToolDefinitions() {
             default: 'json',
             description: 'Output format'
           },
+          ignore_cache: {
+            type: 'boolean',
+            default: false,
+            description: 'Whether to bypass query cache and force fresh execution'
+          },
           parameters: {
-            type: 'object',
-            description: 'Optional parameters for parametric questions'
+            type: 'array',
+            description: 'Sequential array of parameter objects per Metabase REST API specification (POST /api/card/:id/query)',
+            items: {
+              type: 'object',
+              properties: {
+                type: {
+                  type: 'string',
+                  description: 'Parameter type: category, date/single, date/range, date/relative, string/=, string/contains, number/=, number/between'
+                },
+                target: {
+                  type: 'array',
+                  description: 'Target path tuple: ["variable", ["template-tag", "tag_name"]] or ["dimension", ["field", field_id, null]]',
+                  items: {}
+                },
+                value: {
+                  description: 'Filter value to apply (string, number, array of values, or null)'
+                },
+                id: {
+                  type: 'string',
+                  description: 'Optional parameter ID or slug'
+                }
+              },
+              required: ['type', 'target', 'value']
+            }
           }
         },
         required: ['card_id']

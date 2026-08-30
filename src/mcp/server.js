@@ -29,21 +29,11 @@ import { AnalyticsHandler } from './handlers/analytics.js';
 
 // Tool system
 import { getToolDefinitions } from './tool-registry.js';
-import { isReadOnlyMode } from './tool-router.js';
+import { isReadOnlyMode, WRITE_TOOLS } from './tool-router.js';
 
 // Utils
-import { CacheManager, CacheKeys, globalCache } from '../utils/cache.js';
+import { globalCache } from '../utils/cache.js';
 import { config as appConfig } from '../utils/config.js';
-import { getJobStore } from './job-store.js';
-import {
-  ResponseFormat,
-  formatListResponse,
-  formatSQLResult,
-  minimalDatabase,
-  minimalTable,
-  minimalDashboard,
-  minimalQuestion,
-} from '../utils/response-optimizer.js';
 
 // Load environment variables
 dotenv.config();
@@ -98,7 +88,15 @@ class MetabaseMCPServer {
 
       // Core handlers (no extra deps)
       this.metadataHandler = new MetadataHandler(this.metabaseClient);
-      this.dashboardDirectHandler = new DashboardDirectHandler(this.metabaseClient, this.metadataHandler);
+      this.dashboardDirectHandler = new DashboardDirectHandler(this.metabaseClient);
+      this.sqlHandler = new SqlHandler(this.metabaseClient);
+      this.cardsHandler = new CardsHandler(this.metabaseClient);
+      this.collectionsHandler = new CollectionsHandler(this.metabaseClient);
+      this.usersHandler = new UsersHandler(this.metabaseClient);
+      this.actionsHandler = new ActionsHandler(this.metabaseClient);
+      this.docsHandler = new DocsHandler(this.metabaseClient);
+      this.schemaHandler = new SchemaHandler(this.metabaseClient);
+      this.analyticsHandler = new AnalyticsHandler(this.metabaseClient);
 
       await this.metabaseClient.authenticate();
       logger.info('Metabase client initialized');
@@ -167,6 +165,15 @@ class MetabaseMCPServer {
     // Tool dispatch
     this.server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const { name, arguments: args } = request.params;
+
+      // ── Read-only gate ──
+      if (isReadOnlyMode() && WRITE_TOOLS.has(name)) {
+        throw new McpError(
+          ErrorCode.InvalidRequest,
+          `🔒 Read-only mode is active. The tool '${name}' is a write operation and has been blocked.\n` +
+          `To enable write operations, set \`METABASE_READ_ONLY_MODE=false\` in your environment.`
+        );
+      }
 
       try {
         await this.ensureInitialized();

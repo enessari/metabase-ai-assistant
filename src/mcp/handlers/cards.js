@@ -1,9 +1,19 @@
-import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { logger } from '../../utils/logger.js';
+import { BaseHandler } from './base.js';
 
-export class CardsHandler {
-  constructor(metabaseClient) {
-    this.metabaseClient = metabaseClient;
+export class CardsHandler extends BaseHandler {
+  constructor(contextOrClient, activityLogger, connectionManager) {
+    if (contextOrClient && typeof contextOrClient === 'object' && contextOrClient.metabaseClient) {
+      super(contextOrClient);
+    } else {
+      super({
+        metabaseClient: contextOrClient,
+        activityLogger,
+        connectionManager,
+      });
+      this.connectionManager = connectionManager || null;
+      this.activityLogger = activityLogger || null;
+    }
   }
 
   routes() {
@@ -34,13 +44,14 @@ export class CardsHandler {
       content: [
         {
           type: 'text',
-          text: `Question created successfully!\\nName: ${question.name}\\nID: ${question.id}\\nURL: ${process.env.METABASE_URL}/question/${question.id}`,
+          text: `Question created successfully!\nName: ${question.name}\nID: ${question.id}\nURL: ${process.env.METABASE_URL}/question/${question.id}`,
         },
       ],
     };
   }
 
   async handleGetQuestions(args) {
+    const collectionId = args?.collection_id;
     const response = await this.metabaseClient.getQuestions(collectionId);
     const questions = response.data || response; // Handle both formats
 
@@ -48,9 +59,9 @@ export class CardsHandler {
       content: [
         {
           type: 'text',
-          text: `Found ${questions.length} questions:\\n${questions
+          text: `Found ${questions.length} questions:\n${questions
             .map(q => `- ${q.name} (ID: ${q.id})`)
-            .join('\\n')}`,
+            .join('\n')}`,
         },
       ],
       structuredContent: {
@@ -64,14 +75,14 @@ export class CardsHandler {
     try {
       const question = await this.metabaseClient.createParametricQuestion(args);
 
-      let output = `✅ Parametric Question Created Successfully!\\n\\n`;
-      output += `❓ Question: ${question.name} (ID: ${question.id})\\n`;
-      output += `🔗 URL: ${process.env.METABASE_URL}/question/${question.id}\\n`;
+      let output = `✅ Parametric Question Created Successfully!\n\n`;
+      output += `❓ Question: ${question.name} (ID: ${question.id})\n`;
+      output += `🔗 URL: ${process.env.METABASE_URL}/question/${question.id}\n`;
 
       if (args.parameters && args.parameters.length > 0) {
-        output += `\\n🎛️ Parameters:\\n`;
+        output += `\n🎛️ Parameters:\n`;
         args.parameters.forEach(param => {
-          output += `- ${param.display_name} (${param.type})${param.required ? ' *required' : ''}\\n`;
+          output += `- ${param.display_name} (${param.type})${param.required ? ' *required' : ''}\n`;
         });
       }
 
@@ -110,10 +121,11 @@ export class CardsHandler {
         structuredContent: {
           id: card.id,
           name: card.name,
-          description: card.description || null,
+          description: card.description ?? null,
           display: card.display,
           database_id: card.database_id,
-          collection_id: card.collection_id || null,
+          collection_id: card.collection_id ?? null,
+          dataset_query: card.dataset_query ?? null,
           archived: card.archived,
           created_at: card.created_at,
           updated_at: card.updated_at,
@@ -176,9 +188,19 @@ export class CardsHandler {
   }
 
   async handleCardData(args) {
-    const { card_id, format = 'json', parameters } = args;
+    const { card_id, format = 'json', ignore_cache = false } = args;
+    let parameters = args.parameters;
 
     try {
+      // Defensive parsing in case parameters was passed as a JSON string
+      if (typeof parameters === 'string') {
+        try {
+          parameters = JSON.parse(parameters);
+        } catch (_) {
+          // ignore parse failure, let API validate
+        }
+      }
+
       let endpoint = `/api/card/${card_id}/query`;
       if (format === 'csv') {
         endpoint += '/csv';
@@ -186,7 +208,15 @@ export class CardsHandler {
         endpoint += '/xlsx';
       }
 
-      const result = await this.metabaseClient.request('POST', endpoint, { parameters });
+      const body = {};
+      if (parameters && Array.isArray(parameters) && parameters.length > 0) {
+        body.parameters = parameters;
+      }
+      if (ignore_cache) {
+        body.ignore_cache = true;
+      }
+
+      const result = await this.metabaseClient.request('POST', endpoint, body);
 
       if (format === 'json') {
         const data = result.data || result;
@@ -298,7 +328,7 @@ export class CardsHandler {
       content: [
         {
           type: 'text',
-          text: `Dashboard created successfully!\\nName: ${dashboard.name}\\nID: ${dashboard.id}\\nURL: ${process.env.METABASE_URL}/dashboard/${dashboard.id}`,
+          text: `Dashboard created successfully!\nName: ${dashboard.name}\nID: ${dashboard.id}\nURL: ${process.env.METABASE_URL}/dashboard/${dashboard.id}`,
         },
       ],
     };
@@ -313,9 +343,9 @@ export class CardsHandler {
       content: [
         {
           type: 'text',
-          text: `Found ${dashboards.length} dashboards:\\n${dashboards
+          text: `Found ${dashboards.length} dashboards:\n${dashboards
             .map(d => `- ${d.name} (ID: ${d.id})`)
-            .join('\\n')}`,
+            .join('\n')}`,
         },
       ],
       structuredContent: {
@@ -356,15 +386,15 @@ export class CardsHandler {
       // Step 4: Generate executive questions based on business domain
       const executiveQuestions = await this.generateExecutiveQuestions(database_id, targetSchema, tables, business_domain, time_period);
 
-      let output = `✅ Executive Dashboard Created Successfully!\\n\\n`;
-      output += `📊 Dashboard: ${name} (ID: ${dashboard.id})\\n`;
-      output += `🔗 URL: ${process.env.METABASE_URL}/dashboard/${dashboard.id}\\n\\n`;
-      output += `📈 Generated ${executiveQuestions.length} executive questions:\\n`;
+      let output = `✅ Executive Dashboard Created Successfully!\n\n`;
+      output += `📊 Dashboard: ${name} (ID: ${dashboard.id})\n`;
+      output += `🔗 URL: ${process.env.METABASE_URL}/dashboard/${dashboard.id}\n\n`;
+      output += `📈 Generated ${executiveQuestions.length} executive questions:\n`;
 
       // Step 5: Add questions to dashboard with proper layout
       for (let i = 0; i < executiveQuestions.length; i++) {
         const question = executiveQuestions[i];
-        output += `- ${question.name}\\n`;
+        output += `- ${question.name}\n`;
 
         // Calculate position based on executive layout
         const position = this.calculateExecutiveLayout(i, executiveQuestions.length);
@@ -373,15 +403,15 @@ export class CardsHandler {
         try {
           await this.metabaseClient.addCardToDashboard(dashboard.id, question.id, position);
         } catch (error) {
-          output += `  ⚠️ Warning: Could not add to dashboard: ${error.message}\\n`;
+          output += `  ⚠️ Warning: Could not add to dashboard: ${error.message}\n`;
         }
       }
 
-      output += `\\n🎯 Executive Dashboard Features:\\n`;
-      output += `- KPI overview cards\\n`;
-      output += `- Trend analysis charts\\n`;
-      output += `- Performance metrics\\n`;
-      output += `- Time-based filtering\\n`;
+      output += `\n🎯 Executive Dashboard Features:\n`;
+      output += `- KPI overview cards\n`;
+      output += `- Trend analysis charts\n`;
+      output += `- Performance metrics\n`;
+      output += `- Time-based filtering\n`;
 
       return {
         content: [{ type: 'text', text: output }],
@@ -390,33 +420,6 @@ export class CardsHandler {
     } catch (error) {
       return {
         content: [{ type: 'text', text: `❌ Error creating executive dashboard: ${error.message}` }],
-      };
-    }
-  }
-
-
-  async handleCreateParametricQuestion(args) {
-    try {
-      const question = await this.metabaseClient.createParametricQuestion(args);
-
-      let output = `✅ Parametric Question Created Successfully!\\n\\n`;
-      output += `❓ Question: ${question.name} (ID: ${question.id})\\n`;
-      output += `🔗 URL: ${process.env.METABASE_URL}/question/${question.id}\\n`;
-
-      if (args.parameters && args.parameters.length > 0) {
-        output += `\\n🎛️ Parameters:\\n`;
-        args.parameters.forEach(param => {
-          output += `- ${param.display_name} (${param.type})${param.required ? ' *required' : ''}\\n`;
-        });
-      }
-
-      return {
-        content: [{ type: 'text', text: output }],
-      };
-
-    } catch (error) {
-      return {
-        content: [{ type: 'text', text: `❌ Error creating parametric question: ${error.message}` }],
       };
     }
   }
@@ -469,8 +472,8 @@ export class CardsHandler {
           return {
             content: [{
               type: 'text',
-              text: `✅ Card verified!\\n` +
-                `Dashboard: ${dashboard.name} (ID: ${args.dashboard_id})\\n` +
+              text: `✅ Card verified!\n` +
+                `Dashboard: ${dashboard.name} (ID: ${args.dashboard_id})\n` +
                 `Total cards: ${cardCount}`
             }],
           };
@@ -478,9 +481,9 @@ export class CardsHandler {
           return {
             content: [{
               type: 'text',
-              text: `⚠️ Card addition appears to have failed!\\n` +
-                `API reported success but card was not found on dashboard.\\n` +
-                `Dashboard ID: ${args.dashboard_id}, Question ID: ${args.question_id}\\n` +
+              text: `⚠️ Card addition appears to have failed!\n` +
+                `API reported success but card was not found on dashboard.\n` +
+                `Dashboard ID: ${args.dashboard_id}, Question ID: ${args.question_id}\n` +
                 `Please verify the question ID is valid.`
             }],
           };
@@ -490,8 +493,8 @@ export class CardsHandler {
         return {
           content: [{
             type: 'text',
-            text: `✅ Card added (verification unavailable)\\n` +
-              `Dashboard ID: ${args.dashboard_id}\\n` +
+            text: `✅ Card added (verification unavailable)\n` +
+              `Dashboard ID: ${args.dashboard_id}\n` +
               `Card ID: ${result?.id || 'N/A'}`
           }],
         };
@@ -532,7 +535,8 @@ export class CardsHandler {
         structuredContent: {
           id: dashboard.id,
           name: dashboard.name,
-          description: dashboard.description || null,
+          description: dashboard.description ?? null,
+          collection_id: dashboard.collection_id ?? null,
           cards: cards.map(c => ({ id: c.id, card_id: c.card_id })),
           parameters: dashboard.parameters || [],
         },
@@ -705,7 +709,7 @@ export class CardsHandler {
       return {
         content: [{
           type: 'text',
-          text: `✅ Metric created successfully!\\nName: ${metric.name}\\nID: ${metric.id}\\nType: ${args.aggregation.type}`
+          text: `✅ Metric created successfully!\nName: ${metric.name}\nID: ${metric.id}\nType: ${args.aggregation.type}`
         }],
       };
 
@@ -724,7 +728,7 @@ export class CardsHandler {
       return {
         content: [{
           type: 'text',
-          text: `✅ Dashboard filter added successfully!\\nFilter: ${args.name} (${args.type})\\nFilter ID: ${filter.id}`
+          text: `✅ Dashboard filter added successfully!\nFilter: ${args.name} (${args.type})\nFilter ID: ${filter.id}`
         }],
       };
 
@@ -743,7 +747,7 @@ export class CardsHandler {
       return {
         content: [{
           type: 'text',
-          text: `✅ Dashboard layout optimized!\\nStyle: ${args.layout_style}\\nCards repositioned: ${result.repositioned_cards}\\nOptimizations applied: ${result.optimizations.join(', ')}`
+          text: `✅ Dashboard layout optimized!\nStyle: ${args.layout_style}\nCards repositioned: ${result.repositioned_cards}\nOptimizations applied: ${result.optimizations.join(', ')}`
         }],
       };
 
@@ -833,8 +837,37 @@ export class CardsHandler {
       return {
         content: [{
           type: 'text',
-          text: `✅ AI descriptions generated successfully!\\n\\n📊 **Summary:**\\n- Databases: ${updated.databases} updated\\n- Tables: ${updated.tables} updated\\n- Fields: ${updated.fields} updated\\n\\n🤖 All descriptions include AI signature: ${aiSignature}\\n\\n💡 **Features:**\\n- Smart categorization based on table names\\n- Contextual descriptions for business intelligence\\n- Timestamp tracking for audit purposes\\n- Batch processing for efficiency`
-        }]
+          text: `⚠️ **[AI-GENERATED CONTENT — REVIEW BEFORE EXECUTING]**\n\n` +
+            `✅ AI descriptions generated successfully!\n\n` +
+            `📊 **Summary:**\n` +
+            `- Databases: ${updated.databases} updated\n` +
+            `- Tables: ${updated.tables} updated\n` +
+            `- Fields: ${updated.fields} updated\n\n` +
+            `🤖 All descriptions include AI signature: ${aiSignature}\n\n` +
+            `💡 **Features:**\n` +
+            `- Smart categorization based on table names\n` +
+            `- Contextual descriptions for business intelligence\n` +
+            `- Timestamp tracking for audit purposes\n` +
+            `- Batch processing for efficiency`
+        }],
+        structuredContent: {
+          database_id,
+          target_type,
+          updated,
+          _provenance: {
+            ai_generated: true,
+            tool: 'mb_auto_describe',
+            review_required: true,
+            timestamp: new Date().toISOString(),
+            provider: 'heuristic_ai',
+            model: 'metabase-auto-describe-v1',
+            generation_parameters: {
+              database_id,
+              target_type,
+              force_update,
+            },
+          },
+        },
       };
 
     } catch (error) {

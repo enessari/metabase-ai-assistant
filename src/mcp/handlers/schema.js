@@ -623,26 +623,27 @@ export class SchemaHandler {
       args.confidence_threshold || 0.7
     );
 
-    let output = `🤖 VIRTUAL RELATIONSHIP SUGGESTIONS: ${args.schema_name}\\n\\n`;
-    output += `Confidence threshold: ${args.confidence_threshold || 0.7}\\n\\n`;
+    let output = `⚠️ **[AI-GENERATED CONTENT — REVIEW BEFORE EXECUTING]**\n\n`;
+    output += `🤖 VIRTUAL RELATIONSHIP SUGGESTIONS: ${args.schema_name}\n\n`;
+    output += `Confidence threshold: ${args.confidence_threshold || 0.7}\n\n`;
 
     if (suggestions.length === 0) {
-      output += `No high-confidence relationship suggestions found.\\n`;
+      output += `No high-confidence relationship suggestions found.\n`;
       output += `Try lowering the confidence_threshold parameter.`;
     } else {
-      output += `Found ${suggestions.length} potential relationships:\\n\\n`;
+      output += `Found ${suggestions.length} potential relationships:\n\n`;
 
       suggestions.forEach((suggestion, index) => {
         const confidenceBar = '█'.repeat(Math.round(suggestion.confidence * 10));
-        output += `${index + 1}. **${suggestion.sourceTable}.${suggestion.sourceColumn}** → **${suggestion.targetTable}.${suggestion.targetColumn}**\\n`;
-        output += `   Confidence: ${suggestion.confidence.toFixed(2)} ${confidenceBar}\\n`;
-        output += `   Type: ${suggestion.relationshipType}\\n`;
-        output += `   Reasoning: ${suggestion.reasoning}\\n\\n`;
+        output += `${index + 1}. **${suggestion.sourceTable}.${suggestion.sourceColumn}** → **${suggestion.targetTable}.${suggestion.targetColumn}**\n`;
+        output += `   Confidence: ${suggestion.confidence.toFixed(2)} ${confidenceBar}\n`;
+        output += `   Type: ${suggestion.relationshipType}\n`;
+        output += `   Reasoning: ${suggestion.reasoning}\n\n`;
       });
 
-      output += `\\n📋 **Next Steps:**\\n`;
-      output += `1. Review suggestions above\\n`;
-      output += `2. Use 'create_relationship_mapping' with confirmed relationships\\n`;
+      output += `\n📋 **Next Steps:**\n`;
+      output += `1. Review suggestions above\n`;
+      output += `2. Use 'create_relationship_mapping' with confirmed relationships\n`;
       output += `3. This will create Metabase model relationships`;
     }
 
@@ -653,6 +654,25 @@ export class SchemaHandler {
           text: output,
         },
       ],
+      structuredContent: {
+        schema_name: args.schema_name,
+        database_id: args.database_id,
+        confidence_threshold: args.confidence_threshold || 0.7,
+        suggestions,
+        _provenance: {
+          ai_generated: true,
+          tool: 'ai_relationships_suggest',
+          review_required: true,
+          timestamp: new Date().toISOString(),
+          provider: 'heuristic_ai',
+          model: 'relationship-inference-v1',
+          generation_parameters: {
+            database_id: args.database_id,
+            schema_name: args.schema_name,
+            confidence_threshold: args.confidence_threshold || 0.7,
+          },
+        },
+      },
     };
   }
 

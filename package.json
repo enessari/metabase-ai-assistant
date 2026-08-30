@@ -1,8 +1,8 @@
 {
   "name": "metabase-ai-assistant",
-  "version": "4.2.0",
+  "version": "4.2.1",
   "mcpName": "io.github.enessari/metabase-ai-assistant",
-  "description": "The most powerful MCP Server for Metabase - 134 tools with structured output, AI-powered SQL generation, dashboard automation, user management & enterprise BI. MCP SDK v1.26.0 compliant. Works with Claude, Cursor, and any MCP-compatible AI.",
+  "description": "The most powerful MCP Server for Metabase - 133 tools with structured output, AI-powered SQL generation, dashboard automation, user management & enterprise BI. MCP SDK v1.26.0 compliant. Works with Claude, Cursor, and any MCP-compatible AI.",
   "main": "src/index.js",
   "type": "module",
   "scripts": {
@@ -19,7 +19,7 @@
     "docker:run": "docker-compose up -d",
     "docker:stop": "docker-compose down",
     "docker:logs": "docker-compose logs -f metabase-ai-mcp",
-    "test": "jest",
+    "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --forceExit",
     "test:connection": "node src/mcp/server.js --test-connection",
     "lint": "eslint src/**/*.js"
   },

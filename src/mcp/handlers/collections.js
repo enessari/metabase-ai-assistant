@@ -1,9 +1,8 @@
-import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
-import { logger } from '../../utils/logger.js';
+import { BaseHandler } from './base.js';
 
-export class CollectionsHandler {
-  constructor(metabaseClient) {
-    this.metabaseClient = metabaseClient;
+export class CollectionsHandler extends BaseHandler {
+  constructor(contextOrClient) {
+    super(contextOrClient);
   }
 
   routes() {
@@ -19,8 +18,6 @@ export class CollectionsHandler {
 
   async handleCollectionCreate(args) {
     try {
-      await this.ensureInitialized();
-
       const collectionData = {
         name: args.name,
         description: args.description || '',
@@ -33,11 +30,11 @@ export class CollectionsHandler {
       return {
         content: [{
           type: 'text',
-          text: `✅ **Collection Created!**\\n\\n` +
-            `🆔 Collection ID: ${collection.id}\\n` +
-            `📁 Name: ${collection.name}\\n` +
-            `📝 Description: ${collection.description || 'None'}\\n` +
-            `🎨 Color: ${collection.color}\\n` +
+          text: `✅ **Collection Created!**\n\n` +
+            `🆔 Collection ID: ${collection.id}\n` +
+            `📁 Name: ${collection.name}\n` +
+            `📝 Description: ${collection.description || 'None'}\n` +
+            `🎨 Color: ${collection.color}\n` +
             `📂 Parent: ${args.parent_id || 'Root'}`
         }]
       };
@@ -60,32 +57,60 @@ export class CollectionsHandler {
     }
   }
 
-  async handleCollectionList(args) {
+  async handleCollectionList(args = {}) {
     try {
-      await this.ensureInitialized();
+      const parentId = args?.parent_id;
 
-      let endpoint = '/api/collection';
-      if (args.parent_id) {
-        endpoint = `/api/collection/${args.parent_id}/items`;
+      if (parentId !== undefined && parentId !== null && parentId !== '') {
+        const endpoint = `/api/collection/${parentId}/items`;
+        const response = await this.metabaseClient.request('GET', endpoint);
+        const rawItems = Array.isArray(response) ? response : (response.data || []);
+
+        let output = `📂 **Collection Items (Parent: ${parentId})**\n\n`;
+        if (rawItems.length === 0) {
+          output += 'No items found in this collection.\n';
+        } else {
+          rawItems.slice(0, 50).forEach((item, i) => {
+            const modelTag = item.model ? `[${item.model}] ` : '';
+            output += `${i + 1}. ${modelTag}**${item.name}** (ID: ${item.id})\n`;
+            if (item.description) output += `   ${item.description.substring(0, 50)}...\n`;
+          });
+        }
+        output += `\n📊 Total Items: ${rawItems.length}`;
+
+        return {
+          content: [{ type: 'text', text: output }],
+          structuredContent: {
+            parent_id: parentId,
+            items: rawItems.map(item => ({
+              id: item.id,
+              name: item.name,
+              model: item.model || 'unknown',
+              description: item.description ?? null,
+            })),
+            collections: rawItems.filter(item => item.model === 'collection').map(c => ({ id: c.id, name: c.name })),
+            count: rawItems.length,
+          },
+        };
       }
 
       const collections = await this.metabaseClient.request('GET', '/api/collection');
+      const collList = Array.isArray(collections) ? collections : (collections.data || []);
+      let output = `📂 **Collections**\n\n`;
 
-      let output = `📂 **Collections**\\n\\n`;
-
-      const rootCollections = collections.filter(c => !c.personal_owner_id);
+      const rootCollections = collList.filter(c => !c.personal_owner_id);
       rootCollections.slice(0, 20).forEach((col, i) => {
-        output += `${i + 1}. **${col.name}** (ID: ${col.id})\\n`;
-        if (col.description) output += `   ${col.description.substring(0, 50)}...\\n`;
+        output += `${i + 1}. **${col.name}** (ID: ${col.id})\n`;
+        if (col.description) output += `   ${col.description.substring(0, 50)}...\n`;
       });
 
-      output += `\\n📊 Total Collections: ${collections.length}`;
+      output += `\n📊 Total Collections: ${collList.length}`;
 
       return {
         content: [{ type: 'text', text: output }],
         structuredContent: {
           collections: rootCollections.map(c => ({ id: c.id, name: c.name })),
-          count: collections.length,
+          count: collList.length,
         },
       };
 
@@ -98,8 +123,6 @@ export class CollectionsHandler {
 
   async handleCollectionMove(args) {
     try {
-      await this.ensureInitialized();
-
       let endpoint;
       const updateData = { collection_id: args.target_collection_id };
 
@@ -124,9 +147,9 @@ export class CollectionsHandler {
       return {
         content: [{
           type: 'text',
-          text: `✅ **Item Moved!**\\n\\n` +
-            `📦 Type: ${args.item_type}\\n` +
-            `🆔 Item ID: ${args.item_id}\\n` +
+          text: `✅ **Item Moved!**\n\n` +
+            `📦 Type: ${args.item_type}\n` +
+            `🆔 Item ID: ${args.item_id}\n` +
             `📂 Target Collection: ${args.target_collection_id || 'Root'}`
         }]
       };
@@ -139,7 +162,6 @@ export class CollectionsHandler {
   }
 
   async handleCollectionPermissionsGet(args) {
-    await this.ensureInitialized();
     const { collection_id } = args;
 
     try {
@@ -168,7 +190,6 @@ export class CollectionsHandler {
   }
 
   async handleCollectionPermissionsUpdate(args) {
-    await this.ensureInitialized();
     const { collection_id, group_id, permission } = args;
 
     try {
@@ -196,7 +217,6 @@ export class CollectionsHandler {
   }
 
   async handleCollectionCopy(args) {
-    await this.ensureInitialized();
     const { collection_id, destination_id, new_name } = args;
 
     try {
@@ -220,16 +240,22 @@ export class CollectionsHandler {
       // Copy each item
       for (const item of allItems) {
         if (item.model === 'card') {
-          await this.handleCardCopy({
-            card_id: item.id,
+          const sourceCard = await this.metabaseClient.request('GET', `/api/card/${item.id}`);
+          await this.metabaseClient.request('POST', '/api/card', {
+            name: `Copy of ${sourceCard.name}`,
+            description: sourceCard.description,
+            display: sourceCard.display,
+            dataset_query: sourceCard.dataset_query,
+            visualization_settings: sourceCard.visualization_settings,
             collection_id: newCollection.id
           });
           copiedCards++;
         } else if (item.model === 'dashboard') {
-          await this.handleDashboardCopy({
-            dashboard_id: item.id,
-            collection_id: newCollection.id,
-            deep_copy: false // Don't deep copy cards as they're already being copied
+          const sourceDash = await this.metabaseClient.request('GET', `/api/dashboard/${item.id}`);
+          await this.metabaseClient.request('POST', '/api/dashboard', {
+            name: `Copy of ${sourceDash.name}`,
+            description: sourceDash.description,
+            collection_id: newCollection.id
           });
           copiedDashboards++;
         }

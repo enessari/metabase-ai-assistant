@@ -1,4 +1,3 @@
-import { McpError, ErrorCode } from '@modelcontextprotocol/sdk/types.js';
 import { logger } from '../../utils/logger.js';
 import { CacheKeys, globalCache } from '../../utils/cache.js';
 import { getJobStore } from '../job-store.js';
@@ -7,17 +6,22 @@ import {
   formatListResponse,
   minimalDatabase,
 } from '../../utils/response-optimizer.js';
+import { isReadOnlyMode, detectWriteOperation } from './database.js';
+import { BaseHandler } from './base.js';
 
 /**
  * Handler for SQL Execution Operations
  */
-export class SqlHandler {
+export class SqlHandler extends BaseHandler {
   constructor(metabaseClient, cache, activityLogger, aiAssistant) {
-    this.metabaseClient = metabaseClient;
-    this.cache = cache;
+    if (metabaseClient && typeof metabaseClient === 'object' && metabaseClient.metabaseClient) {
+      super(metabaseClient);
+      this.cache = metabaseClient.cache || globalCache;
+    } else {
+      super({ metabaseClient, activityLogger, aiAssistant, cache });
+      this.cache = cache || globalCache;
+    }
     this.activeJobs = new Map();
-    this.activityLogger = activityLogger || null;
-    this.aiAssistant = aiAssistant || null;
     this.jobCounter = 0;
   }
 
@@ -36,23 +40,21 @@ export class SqlHandler {
     const fullResults = args.full_results === true;
 
     // Read-Only Mode Security Check
-    const isReadOnlyMode = process.env.METABASE_READ_ONLY_MODE !== 'false';
-    if (isReadOnlyMode) {
-      const writePattern = /\b(INSERT|UPDATE|DELETE|DROP|TRUNCATE|ALTER|CREATE|GRANT|REVOKE|EXEC|EXECUTE)\b/i;
-      if (writePattern.test(sql)) {
-        const blockedOperation = sql.match(writePattern)?.[0]?.toUpperCase() || 'WRITE';
+    if (isReadOnlyMode()) {
+      const blockedOperation = detectWriteOperation(sql);
+      if (blockedOperation) {
         logger.warn(`Read-only mode: Blocked ${blockedOperation} operation`, { sql: sql.substring(0, 100) });
 
         return {
           content: [
             {
               type: 'text',
-              text: `🔒 **Read-Only Mode Active**\\n\\n` +
-                `⛔ **Operation Blocked:** \`${blockedOperation}\`\\n\\n` +
-                `This MCP server is running in read-only mode for security.\\n` +
-                `Write operations (INSERT, UPDATE, DELETE, DROP, etc.) are not allowed.\\n\\n` +
-                `To enable write operations, set \`METABASE_READ_ONLY_MODE=false\` in your environment.\\n\\n` +
-                `🔍 **Attempted Query:**\\n\`\`\`sql\\n${sql.substring(0, 200)}${sql.length > 200 ? '...' : ''}\\n\`\`\``,
+              text: `🔒 **Read-Only Mode Active**\n\n` +
+                `⛔ **Operation Blocked:** \`${blockedOperation}\`\n\n` +
+                `This MCP server is running in read-only mode for security.\n` +
+                `Write operations (INSERT, UPDATE, DELETE, DROP, etc.) are not allowed.\n\n` +
+                `To enable write operations, set \`METABASE_READ_ONLY_MODE=false\` in your environment.\n\n` +
+                `🔍 **Attempted Query:**\n\`\`\`sql\n${sql.substring(0, 200)}${sql.length > 200 ? '...' : ''}\n\`\`\``,
             },
           ],
         };
@@ -76,15 +78,15 @@ export class SqlHandler {
       const rows = result.data.rows || [];
       const columns = result.data.cols || [];
 
-      let output = `✅ **Query successful** (${executionTime}ms)\\n`;
-      output += `📊 ${columns.length} columns, ${rows.length} rows\\n\\n`;
+      let output = `✅ **Query successful** (${executionTime}ms)\n`;
+      output += `📊 ${columns.length} columns, ${rows.length} rows\n\n`;
 
       if (rows.length > 0) {
         // Show sample data (max 5 rows)
-        output += `**Data:**\\n\`\`\`\\n`;
+        output += `**Data:**\n\`\`\`\n`;
         const headers = columns.map(col => col.name);
-        output += headers.join(' | ') + '\\n';
-        output += headers.map(() => '---').join(' | ') + '\\n';
+        output += headers.join(' | ') + '\n';
+        output += headers.map(() => '---').join(' | ') + '\n';
 
         rows.slice(0, 5).forEach((row) => {
           const formattedRow = row.map(cell => {
@@ -107,21 +109,21 @@ export class SqlHandler {
             }
             return String(cell);
           });
-          output += formattedRow.join(' | ') + '\\n';
+          output += formattedRow.join(' | ') + '\n';
         });
-        output += '\`\`\`\\n';
+        output += '\`\`\`\n';
 
         if (rows.length > 5) {
-          output += `_+${rows.length - 5} more rows_\\n`;
+          output += `_+${rows.length - 5} more rows_\n`;
         }
 
         // Large result warning
         if (rows.length > 100) {
-          output += `\\n⚠️ **Large result:** ${rows.length} rows returned. Use LIMIT for better performance.\\n`;
+          output += `\n⚠️ **Large result:** ${rows.length} rows returned. Use LIMIT for better performance.\n`;
         }
       } else {
         // Empty result - smart detection
-        output += `ℹ️ No results.\\n`;
+        output += `ℹ️ No results.\n`;
 
         // Try to detect if table has data but query returned nothing
         try {
@@ -135,9 +137,9 @@ export class SqlHandler {
               const tableRowCount = countResult.data?.rows?.[0]?.[0] || 0;
 
               if (tableRowCount > 0) {
-                output += `\\n⚠️ **Note:** \`${tableName}\` has ${tableRowCount.toLocaleString()} rows but query returned nothing.\\n`;
-                output += `Possible causes: WHERE clause too restrictive, column name typo, JOIN mismatch\\n`;
-                output += `💡 Use \`db_table_profile\` to inspect table structure.\\n`;
+                output += `\n⚠️ **Note:** \`${tableName}\` has ${tableRowCount.toLocaleString()} rows but query returned nothing.\n`;
+                output += `Possible causes: WHERE clause too restrictive, column name typo, JOIN mismatch\n`;
+                output += `💡 Use \`db_table_profile\` to inspect table structure.\n`;
               }
             } catch (e) { /* ignore */ }
           }
@@ -146,7 +148,7 @@ export class SqlHandler {
 
       // Tool suggestions (only for SELECT queries with few results)
       if (sql.toLowerCase().trim().startsWith('select') && rows.length <= 5) {
-        output += `\\n💡 Related: \`db_table_profile\`, \`mb_field_values\`\\n`;
+        output += `\n💡 Related: \`db_table_profile\`, \`mb_field_values\`\n`;
       }
 
       return {
@@ -184,7 +186,7 @@ export class SqlHandler {
 
       // Compact error format - no query repetition
       const shortSql = sql.length > 80 ? sql.substring(0, 77) + '...' : sql;
-      const output = `❌ SQL Error: ${err.message}\\nQuery: ${shortSql}`;
+      const output = `❌ SQL Error: ${err.message}\nQuery: ${shortSql}`;
 
       return {
         content: [
@@ -224,10 +226,10 @@ export class SqlHandler {
       // Start query execution in background (non-blocking)
       this.executeQueryBackground(job.id, databaseId, markedSql, timeoutSeconds * 1000);
 
-      const output = `✅ **Query Submitted**\\n` +
-        `📋 Job ID: \`${job.id}\`\\n` +
-        `⏱️ Timeout: ${timeoutSeconds} seconds\\n` +
-        `📊 Status: pending\\n\\n` +
+      const output = `✅ **Query Submitted**\n` +
+        `📋 Job ID: \`${job.id}\`\n` +
+        `⏱️ Timeout: ${timeoutSeconds} seconds\n` +
+        `📊 Status: pending\n\n` +
         `💡 Use \`sql_status\` with this job_id to check progress.`;
 
       return {
@@ -296,9 +298,9 @@ export class SqlHandler {
 
       const elapsedSeconds = jobStore.getElapsedSeconds(args.job_id);
 
-      let output = `📋 **Job Status: ${job.id}**\\n`;
-      output += `📊 Status: ${job.status}\\n`;
-      output += `⏱️ Elapsed: ${elapsedSeconds} seconds\\n`;
+      let output = `📋 **Job Status: ${job.id}**\n`;
+      output += `📊 Status: ${job.status}\n`;
+      output += `⏱️ Elapsed: ${elapsedSeconds} seconds\n`;
 
       if (job.status === 'running' || job.status === 'pending') {
         let waitSeconds = 3;
@@ -306,20 +308,20 @@ export class SqlHandler {
         else if (elapsedSeconds > 30) waitSeconds = 10;
         else if (elapsedSeconds > 10) waitSeconds = 5;
 
-        output += `\\n💡 Query is still running. Please wait **${waitSeconds} seconds** before checking again.\\n`;
+        output += `\n💡 Query is still running. Please wait **${waitSeconds} seconds** before checking again.\n`;
         output += `(Use \`sql_cancel\` to stop if needed)`;
       } else if (job.status === 'complete') {
         const rows = job.result?.data?.rows || [];
         const columns = job.result?.data?.cols || [];
 
-        output += `✅ **Query Complete!**\\n`;
-        output += `📊 ${columns.length} columns, ${rows.length} rows\\n\\n`;
+        output += `✅ **Query Complete!**\n`;
+        output += `📊 ${columns.length} columns, ${rows.length} rows\n\n`;
 
         if (rows.length > 0) {
-          output += `**Data:**\\n\`\`\`\\n`;
+          output += `**Data:**\n\`\`\`\n`;
           const headers = columns.map(col => col.name);
-          output += headers.join(' | ') + '\\n';
-          output += headers.map(() => '---').join(' | ') + '\\n';
+          output += headers.join(' | ') + '\n';
+          output += headers.map(() => '---').join(' | ') + '\n';
 
           rows.slice(0, 5).forEach((row) => {
             const formattedRow = row.map(cell => {
@@ -327,16 +329,16 @@ export class SqlHandler {
               const str = String(cell);
               return str.length > 30 ? str.substring(0, 27) + '...' : str;
             });
-            output += formattedRow.join(' | ') + '\\n';
+            output += formattedRow.join(' | ') + '\n';
           });
-          output += '\`\`\`\\n';
+          output += '\`\`\`\n';
 
           if (rows.length > 5) {
-            output += `_+${rows.length - 5} more rows_\\n`;
+            output += `_+${rows.length - 5} more rows_\n`;
           }
         }
       } else if (job.status === 'failed' || job.status === 'timeout' || job.status === 'cancelled') {
-        output += `\\n❌ ${job.error || 'Query did not complete'}`;
+        output += `\n❌ ${job.error || 'Query did not complete'}`;
       }
 
       return {
@@ -395,8 +397,8 @@ export class SqlHandler {
 
       jobStore.markCancelled(args.job_id);
 
-      const output = `✅ **Query Cancelled**\\n` +
-        `📋 Job ID: ${args.job_id}\\n` +
+      const output = `✅ **Query Cancelled**\n` +
+        `📋 Job ID: ${args.job_id}\n` +
         `🗄️ Database cancel: ${dbCancelled ? 'sent' : 'not available'}`;
 
       return {
@@ -445,7 +447,7 @@ export class SqlHandler {
     // If optimization returned a result, use it; otherwise fall back to standard format
     if (optimizedResponse) {
       // Add cache indicator
-      optimizedResponse.content[0].text += source === 'cache' ? '\\n\\n_📦 From cache_' : '';
+      optimizedResponse.content[0].text += source === 'cache' ? '\n\n_📦 From cache_' : '';
       optimizedResponse.structuredContent = structuredContent;
       return optimizedResponse;
     }
@@ -454,9 +456,9 @@ export class SqlHandler {
       content: [
         {
           type: 'text',
-          text: `Found ${databases.length} databases:\\n${databases
+          text: `Found ${databases.length} databases:\n${databases
             .map(db => `- ${db.name} (${db.engine}) - ID: ${db.id}`)
-            .join('\\n')}${source === 'cache' ? '\\n\\n_📦 From cache_' : ''}`,
+            .join('\n')}${source === 'cache' ? '\n\n_📦 From cache_' : ''}`,
         },
       ],
       structuredContent,
@@ -493,9 +495,9 @@ export class SqlHandler {
       content: [
         {
           type: 'text',
-          text: `Found ${tables.length} tables:\\n${tables
+          text: `Found ${tables.length} tables:\n${tables
             .map(table => `- ${table.name} (${table.fields?.length || 0} fields)`)
-            .join('\\n')}`,
+            .join('\n')}`,
         },
       ],
       structuredContent: {
@@ -519,12 +521,29 @@ export class SqlHandler {
       content: [
         {
           type: 'text',
-          text: `Generated SQL for: "${description}"\\n\\n\`\`\`sql\\n${sql}\\n\`\`\``,
+          text: `⚠️ **[AI-GENERATED SQL — REVIEW BEFORE EXECUTING]**\n\n` +
+            `Generated SQL for: "${description}"\n\n\`\`\`sql\n${sql}\n\`\`\``,
         },
       ],
+      structuredContent: {
+        sql,
+        description,
+        database_id,
+        _provenance: {
+          ai_generated: true,
+          tool: 'ai_sql_generate',
+          review_required: true,
+          timestamp: new Date().toISOString(),
+          provider: this.aiAssistant?.aiProvider || 'anthropic',
+          model: this.aiAssistant?.model || 'claude-3-sonnet-20240229',
+          generation_parameters: {
+            database_id,
+            enforce_read_only: true,
+          },
+        },
+      },
     };
   }
-
 
   async handleOptimizeQuery(args) {
     if (!this.aiAssistant) {
@@ -537,12 +556,29 @@ export class SqlHandler {
       content: [
         {
           type: 'text',
-          text: `Optimized SQL:\\n\\n\`\`\`sql\\n${optimization.optimized_sql}\\n\`\`\`\\n\\nOptimizations applied:\\n${optimization.optimizations?.join('\\n- ') || 'None'}\\n\\nExpected improvements:\\n${optimization.improvements || 'Not specified'}`,
+          text: `⚠️ **[AI-GENERATED CONTENT — REVIEW BEFORE EXECUTING]**\n\n` +
+            `Optimized SQL:\n\n\`\`\`sql\n${optimization.optimized_sql}\n\`\`\`\n\nOptimizations applied:\n${optimization.optimizations?.join('\n- ') || 'None'}\n\nExpected improvements:\n${optimization.improvements || 'Not specified'}`,
         },
       ],
+      structuredContent: {
+        original_sql: args.sql,
+        optimized_sql: optimization.optimized_sql,
+        optimizations: optimization.optimizations || [],
+        improvements: optimization.improvements || null,
+        _provenance: {
+          ai_generated: true,
+          tool: 'ai_sql_optimize',
+          review_required: true,
+          timestamp: new Date().toISOString(),
+          provider: this.aiAssistant?.aiProvider || 'anthropic',
+          model: this.aiAssistant?.model || 'claude-3-sonnet-20240229',
+          generation_parameters: {
+            enforce_read_only: true,
+          },
+        },
+      },
     };
   }
-
 
   async handleExplainQuery(args) {
     if (!this.aiAssistant) {
@@ -555,9 +591,24 @@ export class SqlHandler {
       content: [
         {
           type: 'text',
-          text: `Query Explanation:\\n\\n${explanation}`,
+          text: `⚠️ **[AI-GENERATED CONTENT — REVIEW BEFORE EXECUTING]**\n\nQuery Explanation:\n\n${explanation}`,
         },
       ],
+      structuredContent: {
+        sql: args.sql,
+        explanation,
+        _provenance: {
+          ai_generated: true,
+          tool: 'ai_sql_explain',
+          review_required: false,
+          timestamp: new Date().toISOString(),
+          provider: this.aiAssistant?.aiProvider || 'anthropic',
+          model: this.aiAssistant?.model || 'claude-3-sonnet-20240229',
+          generation_parameters: {
+            enforce_read_only: true,
+          },
+        },
+      },
     };
   }
 
