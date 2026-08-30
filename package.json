@@ -20,6 +20,10 @@
     "docker:stop": "docker-compose down",
     "docker:logs": "docker-compose logs -f metabase-ai-mcp",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js --forceExit",
+    "test:unit": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/unit/ --forceExit",
+    "test:integration": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/integration/ --forceExit",
+    "test:security": "node --experimental-vm-modules node_modules/jest/bin/jest.js tests/security/ --forceExit",
+    "test:coverage": "node --experimental-vm-modules node_modules/jest/bin/jest.js --coverage --forceExit",
     "test:connection": "node src/mcp/server.js --test-connection",
     "lint": "eslint src/**/*.js"
   },
