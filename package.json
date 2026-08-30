@@ -7,6 +7,8 @@
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
+    "start:sse": "node src/mcp/sse-server.js",
+    "start:http": "node src/mcp/sse-server.js",
     "dev": "node --watch src/index.js",
     "mcp": "node src/mcp/server.js",
     "mcp:server": "node src/mcp/server.js",

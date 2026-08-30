@@ -135,18 +135,30 @@ On Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 }
 ```
 
-### 3. Username / Password Authentication (Alternative)
+### 3. ChatGPT Custom GPTs & Actions
 
-If API keys are not enabled on your Metabase instance, provide standard credentials:
+Metabase AI Assistant can be exposed as an OpenAPI Action for ChatGPT Plus / Team / Enterprise:
 
-```json
-{
-  "env": {
-    "METABASE_URL": "https://your-metabase-instance.com",
-    "METABASE_USERNAME": "admin@company.com",
-    "METABASE_PASSWORD": "your_secure_password"
-  }
-}
+1. Start the Remote SSE/HTTP server: `npm run start:sse`
+2. In ChatGPT, create a **Custom GPT** -> **Actions** -> **Import from URL**: `https://your-domain.com/tools/openapi.json`
+3. Set Authentication Type to **API Key** with header `x-api-key`.
+4. Detailed setup guide: [docs/integrations/CHATGPT_ACTIONS_GUIDE.md](docs/integrations/CHATGPT_ACTIONS_GUIDE.md)
+
+### 4. Google Gemini & Google AI Studio
+
+Connect via Gemini native Function Calling or Google AI Studio:
+
+1. Use the exported tool declarations from `/tools/openapi.json`.
+2. Pass directly to `@google/genai` or `google-generativeai` SDK tools array.
+3. Detailed setup guide: [docs/integrations/GOOGLE_GEMINI_GUIDE.md](docs/integrations/GOOGLE_GEMINI_GUIDE.md)
+
+### 5. Cloudflare Workers (Serverless Edge Deployment)
+
+Deploy directly to Cloudflare's global edge network:
+
+```bash
+cd deploy/cloudflare
+npx wrangler deploy
 ```
 
 ---
