@@ -415,21 +415,25 @@ class MetabaseMCPServer {
   }
 }
 
-// Run the server
-const server = new MetabaseMCPServer();
+export { MetabaseMCPServer };
 
-if (process.stdout.isTTY) {
-  console.log('🚀 Metabase AI Assistant MCP Server');
-  console.log('📦 Version 4.0.0');
-  console.log('🔧 Env: ' + (process.env.METABASE_URL || 'Not set'));
-  console.log('🔒 Read-only: ' + (isReadOnlyMode() ? 'YES' : 'NO'));
-  console.log('');
-  console.log('Starting MCP server...');
-}
+// Run the server if executed directly
+if (import.meta.url === `file://${process.argv[1]}`) {
+  const server = new MetabaseMCPServer();
 
-server.run().catch((error) => {
   if (process.stdout.isTTY) {
-    console.error('❌ Failed to start MCP server:', error.message);
+    console.log('🚀 Metabase AI Assistant MCP Server');
+    console.log('📦 Version 5.0.0');
+    console.log('🔧 Env: ' + (process.env.METABASE_URL || 'Not set'));
+    console.log('🔒 Read-only: ' + (isReadOnlyMode() ? 'YES' : 'NO'));
+    console.log('');
+    console.log('Starting MCP server...');
   }
-  process.exit(1);
-});
+
+  server.run().catch((error) => {
+    if (process.stdout.isTTY) {
+      console.error('❌ Failed to start MCP server:', error.message);
+    }
+    process.exit(1);
+  });
+}

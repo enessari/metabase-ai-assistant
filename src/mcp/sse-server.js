@@ -124,10 +124,24 @@ app.post('/messages', async (req, res) => {
   await transport.handlePostMessage(req, res);
 });
 
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  logger.info(`Metabase Remote MCP & AI Webhook Server running on port ${PORT}`);
-  logger.info(`Health check: http://localhost:${PORT}/health`);
-  logger.info(`SSE MCP Endpoint: http://localhost:${PORT}/sse`);
-  logger.info(`OpenAPI Schema: http://localhost:${PORT}/tools/openapi.json`);
-});
+const DEFAULT_PORT = parseInt(process.env.MCP_SSE_PORT || process.env.PORT || '3055', 10);
+
+function startServer(port) {
+  const server = app.listen(port, () => {
+    logger.info(`Metabase Remote MCP & AI Webhook Server running on port ${port}`);
+    logger.info(`Health check: http://localhost:${port}/health`);
+    logger.info(`SSE MCP Endpoint: http://localhost:${port}/sse`);
+    logger.info(`OpenAPI Schema: http://localhost:${port}/tools/openapi.json`);
+  });
+
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      logger.warn(`Port ${port} in use, trying port ${port + 1}...`);
+      startServer(port + 1);
+    } else {
+      logger.error(`Server error: ${err.message}`);
+    }
+  });
+}
+
+startServer(DEFAULT_PORT);
