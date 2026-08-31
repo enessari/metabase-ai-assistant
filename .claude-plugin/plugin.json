@@ -1,7 +1,7 @@
 {
   "name": "metabase-ai-assistant",
-  "description": "MCP Server for Metabase - 143 tools for dbt semantic models, governance-first memory, and enterprise BI",
-  "version": "5.1.0",
+  "description": "MCP Server for Metabase - 148 tools for dbt semantic models, Lightdash YAML Code-as-BI, Cube pre-aggregations, and enterprise BI",
+  "version": "5.2.0",
   "author": {
     "name": "Abdullah Enes SARI",
     "email": "contact@onmartech.com"

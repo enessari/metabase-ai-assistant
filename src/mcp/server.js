@@ -407,6 +407,11 @@ class MetabaseMCPServer {
       // ── dbt & Semantic Layer (Governance-First) ──
       case 'dbt_inspect_models': return await this.dbtSemanticHandler.handleDbtInspectModels(args);
       case 'dbt_prioritize_sources': return await this.dbtSemanticHandler.handleDbtPrioritizeSources(args);
+      case 'dbt_project_scan_deep': return await this.dbtSemanticHandler.handleDbtProjectScanDeep(args);
+      case 'dbt_lineage_joins_graph': return await this.dbtSemanticHandler.handleDbtLineageJoinsGraph(args);
+      case 'dbt_semantic_preagg_advisor': return await this.dbtSemanticHandler.handleDbtSemanticPreaggAdvisor(args);
+      case 'dbt_build_dashboard_from_yaml': return await this.dbtSemanticHandler.handleDbtBuildDashboardFromYaml(args);
+      case 'dbt_semantic_export_yaml': return await this.dbtSemanticHandler.handleDbtSemanticExportYaml(args);
       case 'semantic_memory_propose': return await this.dbtSemanticHandler.handleSemanticMemoryPropose(args);
       case 'semantic_memory_approve': return await this.dbtSemanticHandler.handleSemanticMemoryApprove(args);
       case 'semantic_memory_deprecate': return await this.dbtSemanticHandler.handleSemanticMemoryDeprecate(args);

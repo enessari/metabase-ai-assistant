@@ -2,9 +2,9 @@
     "dxt_version": "0.3",
     "name": "metabase-ai-assistant",
     "display_name": "Metabase AI Assistant",
-    "version": "5.1.0",
-    "description": "The most powerful MCP Server for Metabase — 143 tools with dbt semantic layer, governance-first business memory, autonomous self-healing SQL & enterprise BI.",
-    "long_description": "Connect Claude to your Metabase instance with 143 specialized tools.\n\n**Features:**\n- dbt Semantic Layer & Model Hierarchy Awareness (Marts > Intermediate > Staging)\n- Governance-First Semantic Memory (Propose/Approve, Soft-Deprecate, Audit History)\n- Autonomous Self-Healing SQL execution & AI generation\n- Autonomous End-to-End Dashboard Architecting\n- Proactive Anomaly & Outlier Detection\n- AI Query Index & Materialized View Advisor\n- Enterprise PII & Sensitive Data Sanitizer\n- Schema exploration & relationship detection\n- User & permission management\n- Export/import workspace migration\n\nRequires a running Metabase instance with API access.",
+    "version": "5.2.0",
+    "description": "The most powerful MCP Server for Metabase — 148 tools with dbt semantic layer, Lightdash YAML Code-as-BI, Cube.js pre-aggregations, Omni semantic bridge & enterprise BI.",
+    "long_description": "Connect Claude to your Metabase instance with 148 specialized tools.\n\n**Features:**\n- dbt Deep Scanning, MetricFlow & dbt Docs Profiling\n- Lightdash-style Code-as-BI YAML to 24-column Metabase Dashboard Builder\n- Cube.js-style Pre-Aggregation, Rollup DDL & Multi-Hop Lineage Joins\n- Omni.co-style Controlled Semantic-to-YAML Exporter\n- Autonomous Self-Healing SQL execution & AI generation\n- Proactive Anomaly & Outlier Detection\n- AI Query Index & Materialized View Advisor\n- Enterprise PII & Sensitive Data Sanitizer\n\nRequires a running Metabase instance with API access.",
     "author": {
         "name": "ONMARTECH LLC",
         "email": "contact@onmartech.com",

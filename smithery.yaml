@@ -49,7 +49,7 @@ startCommand:
         DATABASE_PASSWORD: config.DATABASE_PASSWORD || ""
       }
     })
-description: "The most powerful MCP Server for Metabase - 143 tools with dbt semantic layer, governance-first business memory, autonomous self-healing SQL, automated dashboard architecting & enterprise BI. MCP SDK v1.26.0 compliant. Works with Claude, Cursor, and any MCP-compatible AI."
+description: "The most powerful MCP Server for Metabase - 148 tools with dbt semantic layer, Lightdash YAML Code-as-BI, Cube.js pre-aggregations, Omni semantic bridge, autonomous self-healing SQL & enterprise BI. MCP SDK v1.26.0 compliant. Works with Claude, Cursor, and any MCP-compatible AI."
 tags:
   - "metabase"
   - "database"

@@ -7,7 +7,7 @@
 
 Metabase AI Assistant is an enterprise-grade Model Context Protocol (MCP) server that connects Large Language Models (LLMs), AI coding assistants, and automated data workflows directly to your Metabase Business Intelligence instance.
 
-Featuring **143 dedicated tools**, native **dbt Semantic Layer** awareness, **Governance-First Business Memory** (explicit approvals, soft-deprecation), autonomous self-healing SQL execution, full-scale dashboard architecting, proactive anomaly detection, query index advisory, zero-leak PII masking, and strict security guardrails.
+Featuring **148 dedicated tools**, native **dbt Semantic Layer** integration, **Lightdash Code-as-BI YAML-to-Dashboard** generation, **Cube.js-style Pre-aggregations & Multi-Hop Lineage Joins**, **Omni.co Controlled Semantic-to-YAML bridge**, autonomous self-healing SQL execution, full-scale dashboard architecting, proactive anomaly detection, query index advisory, zero-leak PII masking, and strict security guardrails.
 
 ---
 
@@ -23,7 +23,7 @@ Featuring **143 dedicated tools**, native **dbt Semantic Layer** awareness, **Go
 ## Table of Contents
 
 - [Core Architectural Highlights](#core-architectural-highlights)
-- [Next-Gen Autonomous Features (v5.1)](#next-gen-autonomous-features-v51)
+- [Next-Gen Autonomous Features (v5.2)](#next-gen-autonomous-features-v52)
 - [Metabase Version Compatibility](#metabase-version-compatibility)
 - [Quick Start & Installation](#quick-start--installation)
 - [Client Configuration & Desktop Setup](#client-configuration--desktop-setup)
@@ -32,7 +32,7 @@ Featuring **143 dedicated tools**, native **dbt Semantic Layer** awareness, **Go
   - [ChatGPT Custom GPTs & Actions](#3-chatgpt-custom-gpts--actions)
   - [Google Gemini & AI Studio](#4-google-gemini--google-ai-studio)
   - [Cloudflare Workers (Serverless Edge)](#5-cloudflare-workers-serverless-edge)
-- [Tool Categories Overview (143 Tools)](#tool-categories-overview-143-tools)
+- [Tool Categories Overview (148 Tools)](#tool-categories-overview-148-tools)
 - [Testing & Quality Assurance](#testing--quality-assurance)
 - [Project Roadmap & Upcoming Features](ROADMAP.md)
 - [License](#license)
@@ -43,13 +43,13 @@ Featuring **143 dedicated tools**, native **dbt Semantic Layer** awareness, **Go
 
 Metabase AI Assistant transforms standard AI interfaces (Claude Desktop, Cursor, VS Code, ChatGPT, Gemini, automated agent frameworks) into full-fledged Metabase power users:
 
-1. **dbt Semantic Layer & Model Tier Awareness**: Prioritizes curated Gold Marts (`fct_`, `dim_`, `rpt_`) over raw staging tables to ensure clean, tested metric calculations.
-2. **Governance-First Semantic Memory Engine**: Learns company-specific business rules with **explicit proposal and approval workflows**. Implements safe **soft-deprecation (no hard deletes)** with mandatory audit comments.
-3. **Autonomous Self-Healing SQL Engine**: Executes queries, catches database syntax/schema errors, inspects table structures, repairs queries automatically across 3 retry loops, and returns audited results.
-4. **End-to-End Autonomous Dashboard Architect**: Generates 6–8 tailored metric cards, calculates collision-free 24-column grid coordinates, saves questions, builds dashboards, and binds global filters in a single request.
-5. **AI Query Index & Materialized View Advisor**: Analyzes SQL and `EXPLAIN` query plans to recommend optimal composite indexes and materialized view definitions.
-6. **Proactive KPI Anomaly & Outlier Detector**: Multi-model statistical engine (Z-Score, Tukey IQR, Bollinger Bands) to detect metric anomalies with dimensional root-cause hypotheses.
-7. **Zero-Leak Enterprise PII Masker**: Real-time masking of emails, phone numbers, national IDs, credit cards, IP addresses, and tokens before data leaves for LLM contexts.
+1. **dbt Deep Scanning & MetricFlow Integration (`dbt_project_scan_deep`)**: 9-tier architectural classification, `doc('...')` resolution, and `catalog.json` table/column profiling.
+2. **Cube.js Multi-Hop Lineage Joins (`dbt_lineage_joins_graph`)**: Resolves shortest join paths via Dijkstra Min-Heap algorithms with 3-color DAG cycle detection.
+3. **Cube.js Pre-Aggregation & Rollup Advisor (`dbt_semantic_preagg_advisor`)**: Generates multi-dialect Materialized View DDLs (Postgres, BigQuery, Snowflake, ClickHouse, DuckDB, Redshift, MySQL) with HyperLogLog distinct counts.
+4. **Lightdash Code-as-BI Dashboard Builder (`dbt_build_dashboard_from_yaml`)**: Translates `meta.metabase` and `meta.lightdash` formatting options into collision-free 24-column Metabase Dashboards.
+5. **Omni.co Controlled Semantic-to-YAML Exporter (`dbt_semantic_export_yaml`)**: Serializes approved business rules into clean dbt `schema.yml` / `semantic_models.yml` code blocks.
+6. **Autonomous Self-Healing SQL Engine (`ai_sql_execute_and_heal`)**: 3-iteration automated error-recovery loop for resilient querying.
+7. **Zero-Leak Enterprise PII Masker**: Real-time sanitization of emails, phone numbers, national IDs, credit cards, IP addresses, and tokens.
 
 ---
 

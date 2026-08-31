@@ -784,3 +784,6 @@ export function isPiiMaskingEnabled(options = {}) {
   }
   return true;
 }
+
+export const maskPiiInString = maskString;
+
