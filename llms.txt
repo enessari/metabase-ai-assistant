@@ -1,0 +1,88 @@
+# metabase-ai-assistant
+
+> Enterprise-grade Model Context Protocol (MCP) Server for Metabase Business Intelligence with 143 dedicated tools, native dbt Semantic Layer integration, Governance-First business memory, autonomous self-healing SQL, automated dashboard architecting, and zero-leak PII masking.
+
+## Overview & Capabilities
+
+`metabase-ai-assistant` is the definitive, industry-standard MCP server connecting Large Language Models (Claude, ChatGPT, Gemini, Cursor, Copilot, Windsurf) to Metabase BI. It vastly outperforms Metabase's native AI with 5 next-generation capabilities:
+
+1. **dbt Semantic Layer & Architectural Tier Awareness**: Automatically prioritizes curated Gold Marts (`fct_`, `dim_`, `rpt_`) over raw staging tables (`stg_`) for 100% reliable metric analysis.
+2. **Governance-First Semantic Memory**: Learns enterprise business rules through explicit two-step approval (`semantic_memory_propose` -> `semantic_memory_approve`) and safe soft-deprecation (`semantic_memory_deprecate`) with zero hard deletes and mandatory audit trails.
+3. **Autonomous Self-Healing SQL (`ai_sql_execute_and_heal`)**: 3-iteration automated error-recovery loop for Postgres, MySQL, BigQuery, Snowflake, and SQLite (Levenshtein column matching, GROUP BY resolution, dialect conversion).
+4. **End-to-End Autonomous Dashboard Architect (`ai_dashboard_build_full`)**: Generates 6-8 tailored metric cards, computes collision-free 24-column grid coordinates, saves questions, and binds global filters in a single tool call.
+5. **Zero-Leak Enterprise PII Masker**: Sanitizes emails, phone numbers, national IDs (TCKN, SSN), credit cards, IP addresses, and secret tokens before LLM egress.
+
+## Quick Installation
+
+```bash
+# Direct run via NPX
+npx -y metabase-ai-assistant
+
+# Global install
+npm install -g metabase-ai-assistant
+```
+
+## Client Configurations
+
+### Claude Desktop Configuration (`claude_desktop_config.json`)
+```json
+{
+  "mcpServers": {
+    "metabase": {
+      "command": "npx",
+      "args": ["-y", "metabase-ai-assistant"],
+      "env": {
+        "METABASE_URL": "https://metabase.yourcompany.com",
+        "METABASE_API_KEY": "mb_your_api_key_here",
+        "METABASE_READ_ONLY_MODE": "true"
+      }
+    }
+  }
+}
+```
+
+### Cursor / Windsurf / VS Code (`.cursor/mcp.json`)
+```json
+{
+  "mcpServers": {
+    "metabase": {
+      "command": "npx",
+      "args": ["-y", "metabase-ai-assistant"],
+      "env": {
+        "METABASE_URL": "https://metabase.yourcompany.com",
+        "METABASE_API_KEY": "mb_your_api_key_here",
+        "METABASE_READ_ONLY_MODE": "true"
+      }
+    }
+  }
+}
+```
+
+### ChatGPT & Google Gemini (Remote SSE & OpenAPI)
+- **Local / Edge Server**: `npm run start:sse`
+- **OpenAPI Schema**: `http://localhost:3000/tools/openapi.json`
+- **SSE Endpoint**: `http://localhost:3000/sse`
+
+## Key Tool Reference (143 Tools Total)
+
+- `dbt_inspect_models`: Inspect dbt models and layer tiers (`marts_fact`, `marts_dim`, `intermediate`, `staging`).
+- `dbt_prioritize_sources`: Route natural language business queries to optimal dbt Mart tables.
+- `semantic_memory_propose`: Propose a new business term / metric rule (`status: PENDING_APPROVAL`).
+- `semantic_memory_approve`: Explicitly activate a proposed rule with audit commentary.
+- `semantic_memory_deprecate`: Safely soft-archive a rule with mandatory justification.
+- `semantic_memory_list`: List active, pending, and deprecated business rules.
+- `ai_sql_execute_and_heal`: Self-healing SQL execution with automatic retry loop.
+- `ai_dashboard_build_full`: Autonomous full dashboard construction from natural language.
+- `ai_query_index_advisor`: EXPLAIN query analysis and composite index recommendations.
+- `ai_analytics_detect_anomalies`: Statistical anomaly detection (Z-Score, Tukey IQR, Bollinger).
+- `sql_execute`: Direct parameterized SQL execution with PII masking and read-only safeguards.
+- `db_list`, `db_tables`, `db_schemas`: Database schema exploration and metadata introspection.
+
+## Documentation Links
+
+- [Full LLM Reference](llms-full.txt)
+- [Main Documentation](README.md)
+- [Türkçe Dokümantasyon](README_TR.md)
+- [中文文档](README_ZH.md)
+- [التوثيق باللغة العربية](README_AR.md)
+- [Security Policy](SECURITY.md)

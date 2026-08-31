@@ -1,0 +1,21 @@
+cff-version: 1.2.0
+message: "If you use this software in your research or business intelligence operations, please cite it as below."
+authors:
+  - family-names: "SARI"
+    given-names: "Abdullah Enes"
+    orcid: "https://orcid.org/0009-0000-0000-0000"
+title: "Metabase AI Assistant: Enterprise Model Context Protocol (MCP) Server for Autonomous Business Intelligence"
+version: 5.1.0
+date-released: 2026-08-31
+url: "https://github.com/enessari/metabase-ai-assistant"
+keywords:
+  - "model-context-protocol"
+  - "mcp"
+  - "metabase"
+  - "dbt"
+  - "business-intelligence"
+  - "claude"
+  - "cursor"
+  - "chatgpt"
+  - "autonomous-sql"
+  - "self-healing-sql"

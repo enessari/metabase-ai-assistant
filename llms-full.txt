@@ -1,0 +1,85 @@
+# metabase-ai-assistant (Full Technical Reference for LLMs and AI Agents)
+
+## Metadata
+- **Package Name**: `metabase-ai-assistant`
+- **Current Version**: `5.1.0`
+- **Protocol Standard**: Model Context Protocol (MCP) Specification `2025-06-18` / SDK `v1.26.0+`
+- **Total Tools**: 143 specialized BI, dbt, SQL, and governance tools
+- **Supported LLM Clients**: Claude Desktop (DXT/MCPB), Cursor IDE, Windsurf, VS Code (Cline/Roo), ChatGPT Actions, Google Gemini Function Calling
+- **Repository**: https://github.com/enessari/metabase-ai-assistant
+- **License**: Apache-2.0 (Copyright ONMARTECH LLC)
+
+## Architectural Design & Subsystems
+
+### 1. dbt Semantic Layer Integration (`src/dbt/dbt-parser.js`)
+Classifies data models into architectural tiers based on path patterns and naming conventions:
+- **`marts_fact` (Tier Rank: 100)**: Gold fact tables (`fct_`, `fact_`) representing transactional business facts.
+- **`marts_dim` (Tier Rank: 90)**: Gold dimension tables (`dim_`, `dimension_`) representing core business entities.
+- **`marts_report` (Tier Rank: 85)**: Gold pre-aggregated reporting tables (`rpt_`, `agg_`, `kpi_`).
+- **`intermediate` (Tier Rank: 50)**: Silver intermediate transformation layers (`int_`).
+- **`staging` (Tier Rank: 20)**: Bronze cleaned staging tables (`stg_`).
+- **`raw` (Tier Rank: 10)**: Raw source database tables.
+
+When an AI agent or user asks a business question, the source prioritization engine (`dbt_prioritize_sources`) matches intent keywords against model tags, column descriptions, and tier ranks, guaranteeing queries hit curated Marts rather than uncleaned Staging tables.
+
+### 2. Governance-First Semantic Memory Engine (`src/semantic/semantic-memory.js`)
+Implements strict compliance rules:
+- **Zero Silent Learning**: Business rules are proposed in `PENDING_APPROVAL` status and never affect queries without explicit steward sign-off (`semantic_memory_approve`).
+- **No Hard Deletes**: Business definitions cannot be deleted; instead, they are soft-deprecated (`semantic_memory_deprecate`) with mandatory audit reasons (`status: DEPRECATED`).
+- **Rollback Guarantee**: Deprecated rules can be reactivated anytime (`semantic_memory_restore`).
+- **Active Query Injection**: Active rules are injected into LLM SQL generation prompts within `[GOVERNANCE_APPROVED_BUSINESS_RULES]` blocks.
+
+### 3. Autonomous Self-Healing SQL Engine (`src/ai/sql-healing-engine.js`)
+- Executes queries via `ai_sql_execute_and_heal`.
+- If an execution error occurs (missing column, syntax error, missing `GROUP BY`, divide-by-zero, dialect incompatibility), it performs schema introspection and Levenshtein string-distance column matching.
+- Retries up to 3 iterations automatically.
+- Appends complete remediation history in `_provenance.healing_trail`.
+
+### 4. End-to-End Autonomous Dashboard Architect (`src/analytics/dashboard-architect.js`)
+- Transforms a high-level intent into a complete Metabase dashboard (`ai_dashboard_build_full`).
+- Produces 6-8 cards: Single KPIs, time-series lines, categorical bars, and breakdown tables.
+- Computes non-overlapping 24-column Metabase grid coordinates (`col`, `row`, `size_x`, `size_y`).
+- Binds global dashboard filters (date ranges, categories) to SQL template variables.
+
+### 5. Zero-Leak Enterprise PII Masker (`src/utils/pii-masker.js`)
+- Sanitizes all query result payloads before sending to AI clients.
+- Masks emails (`user@domain.com` -> `[EMAIL_MASKED]`), Turkish/International phone numbers, national IDs (TCKN, SSN), credit cards (Luhn valid), IP addresses, and secret access tokens (`ghp_`, `sk_`, `xoxb-`).
+
+### 6. Strict Read-Only Gatekeeper (`src/mcp/tool-router.js`)
+- When `METABASE_READ_ONLY_MODE=true` is enabled, all mutating tools (DML, DDL, table drops, dashboard deletion, user alterations) are rejected before execution.
+
+## Complete 143 MCP Tool Catalog
+
+### dbt & Semantic Layer Tools (6 Tools)
+- `dbt_inspect_models`: Inspect dbt models and layer tiers from `manifest.json`.
+- `dbt_prioritize_sources`: Prioritize optimal Gold Mart tables for a query.
+- `semantic_memory_propose`: Propose a business rule (`PENDING_APPROVAL`).
+- `semantic_memory_approve`: Approve and activate a proposed rule (`ACTIVE`).
+- `semantic_memory_deprecate`: Safely soft-archive a rule (`DEPRECATED`).
+- `semantic_memory_list`: List all business rules with full audit trail.
+
+### Autonomous AI Operations (4 Tools)
+- `ai_sql_execute_and_heal`: Self-healing SQL execution with 3-iteration repair loop.
+- `ai_dashboard_build_full`: Autonomous full dashboard construction and filter binding.
+- `ai_query_index_advisor`: EXPLAIN query analysis and composite index recommendations.
+- `ai_analytics_detect_anomalies`: Multi-model statistical anomaly and outlier detector.
+
+### SQL Execution & Database Exploration (20 Tools)
+- `sql_execute`: Parameterized SQL execution.
+- `sql_submit`, `sql_status`, `sql_cancel`: Async query job queue.
+- `db_list`, `db_tables`, `db_schemas`, `db_table_profile`, `db_connection_info`: Schema exploration.
+- `db_table_create`, `db_view_create`, `db_matview_create`, `db_index_create`, `db_table_ddl`, `db_view_ddl`, `db_ai_list`, `db_ai_drop`: DDL operations.
+- `db_schema_explore`, `db_schema_analyze`, `db_relationships_detect`: Schema & relationship detection.
+- `db_vacuum_analyze`, `db_query_explain`, `db_table_stats`, `db_index_usage`: Maintenance & profiling.
+
+### Questions & Cards (34 Tools)
+- `mb_card_get`, `mb_card_data`, `mb_question_create`, `mb_card_update`, `mb_card_delete`, `mb_card_archive`, `mb_card_clone`, `mb_card_copy`, `mb_card_search`, `mb_card_favorite`, `mb_card_unfavorite`, `mb_card_query_metadata`, `mb_card_series_add`, `mb_card_series_remove`, `mb_card_export`, `mb_card_visualization_update`, `mb_card_parameters_update`, `mb_card_collection_move`, `mb_card_revisions`, `mb_card_revision_revert`, `mb_card_embed_enable`, `mb_card_embed_disable`, `mb_card_public_link_create`, `mb_card_public_link_delete`, `mb_card_dependency_graph`, `mb_card_execution_stats`, `mb_card_cache_invalidate`, `mb_card_insights_extract`, `mb_card_format_table`, `mb_card_sql_generate`, `mb_card_filter_apply`, `mb_card_sort_apply`, `mb_card_limit_apply`, `mb_card_aggregation_apply`.
+
+### Dashboards & Layouts (22 Tools)
+- `mb_dashboard_get`, `mb_dashboard_create`, `mb_dashboard_update`, `mb_dashboard_delete`, `mb_dashboard_add_card`, `mb_dashboard_card_remove`, `mb_dashboard_card_update`, `mb_dashboard_update_layout`, `mb_dashboard_add_filter`, `mb_dashboard_add_tab`, `mb_dashboard_tab_update`, `mb_dashboard_tab_remove`, `mb_dashboard_tab_reorder`, `mb_dashboard_copy`, `mb_dashboard_favorite`, `mb_dashboard_unfavorite`, `mb_dashboard_search`, `mb_dashboard_revisions`, `mb_dashboard_revision_revert`, `mb_dashboard_layout_optimize`, `mb_dashboard_template_executive`, `mb_dashboard_export`.
+
+### Collections & Organization (8 Tools)
+- `mb_collection_tree`, `mb_collection_get`, `mb_collection_items`, `mb_collection_create`, `mb_collection_move`, `mb_collection_copy`, `mb_collection_permissions_update`, `mb_collection_search`.
+
+### Schema, Users, Permissions, Actions & Metadata (49 Tools)
+- Comprehensive administration, audit log inspection, workspace backup/import (`mb_meta_export_workspace`, `mb_meta_import_preview`, `mb_meta_compare_environments`, `mb_meta_auto_cleanup`), permission groups, actions, pulses, and alerts.
