@@ -34,6 +34,7 @@ Featuring **143 dedicated tools**, native **dbt Semantic Layer** awareness, **Go
   - [Cloudflare Workers (Serverless Edge)](#5-cloudflare-workers-serverless-edge)
 - [Tool Categories Overview (143 Tools)](#tool-categories-overview-143-tools)
 - [Testing & Quality Assurance](#testing--quality-assurance)
+- [Project Roadmap & Upcoming Features](ROADMAP.md)
 - [License](#license)
 
 ---

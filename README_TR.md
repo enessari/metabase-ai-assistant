@@ -34,6 +34,7 @@ Bünyesinde barındırdığı **143 özel araç**, yerel **dbt Semantik Katman**
   - [Cloudflare Workers Dağıtımı](#5-cloudflare-workers-sunucusuz-dağıtım)
 - [Araç Kategorileri (143 Araç)](#araç-kategorileri-143-araç)
 - [Test ve Kalite Güvencesi](#test-ve-kalite-güvencesi)
+- [Geliştirme Yol Haritası (Roadmap)](ROADMAP.md)
 - [Lisans](#lisans)
 
 ---
