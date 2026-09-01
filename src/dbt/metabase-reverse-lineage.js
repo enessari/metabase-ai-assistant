@@ -50,49 +50,67 @@ export class MetabaseReverseLineage {
     // 1. Scan Dashboards
     if (include_dashboards) {
       try {
-        const dashboards = await this.client.get('/dashboard');
-        for (const dash of dashboards) {
-          if (dash.archived) continue;
+        let dashboards = [];
+        if (typeof this.client.getDashboards === 'function') {
+          dashboards = await this.client.getDashboards();
+        } else if (typeof this.client.get === 'function') {
+          dashboards = await this.client.get('/dashboard');
+        } else if (typeof this.client.request === 'function') {
+          dashboards = await this.client.request('GET', '/api/dashboard');
+        }
 
-          // Fetch dashboard details to see cards inside
-          const fullDash = await this.client.get(`/dashboard/${dash.id}`);
-          const modelDeps = new Set();
+        if (Array.isArray(dashboards)) {
+          for (const dash of dashboards) {
+            if (dash.archived) continue;
 
-          if (Array.isArray(fullDash.ordered_cards)) {
-            for (const dashCard of fullDash.ordered_cards) {
-              const card = dashCard.card;
-              if (!card) continue;
+            // Fetch dashboard details to see cards inside
+            let fullDash = dash;
+            if (typeof this.client.getDashboard === 'function') {
+              fullDash = await this.client.getDashboard(dash.id);
+            } else if (typeof this.client.get === 'function') {
+              fullDash = await this.client.get(`/dashboard/${dash.id}`);
+            } else if (typeof this.client.request === 'function') {
+              fullDash = await this.client.request('GET', `/api/dashboard/${dash.id}`);
+            }
 
-              if (card.dataset_query?.type === 'native' && card.dataset_query.native?.query) {
-                const tables = this.extractTablesFromSql(card.dataset_query.native.query);
-                tables.forEach(t => modelDeps.add(`ref('${t}')`));
-              } else if (card.dataset_query?.type === 'query') {
-                const sourceTable = card.dataset_query.query?.['source-table'];
-                if (sourceTable) {
-                  modelDeps.add(`ref('table_${sourceTable}')`);
+            const modelDeps = new Set();
+
+            if (Array.isArray(fullDash.ordered_cards)) {
+              for (const dashCard of fullDash.ordered_cards) {
+                const card = dashCard.card;
+                if (!card) continue;
+
+                if (card.dataset_query?.type === 'native' && card.dataset_query.native?.query) {
+                  const tables = this.extractTablesFromSql(card.dataset_query.native.query);
+                  tables.forEach(t => modelDeps.add(`ref('${t}')`));
+                } else if (card.dataset_query?.type === 'query') {
+                  const sourceTable = card.dataset_query.query?.['source-table'];
+                  if (sourceTable) {
+                    modelDeps.add(`ref('table_${sourceTable}')`);
+                  }
                 }
               }
             }
+
+            const cleanName = String(dash.name)
+              .toLowerCase()
+              .replace(/[^a-z0-9_]+/g, '_')
+              .replace(/^_+|_+$/g, '');
+
+            exposures.push({
+              name: `metabase_dashboard_${dash.id}_${cleanName}`,
+              label: `[Metabase] ${dash.name}`,
+              type: 'dashboard',
+              maturity: 'high',
+              url: `${metabase_base_url.replace(/\/$/, '')}/dashboard/${dash.id}`,
+              description: dash.description || `Metabase Dashboard: ${dash.name} containing ${fullDash.ordered_cards?.length || 0} visual cards.`,
+              depends_on: Array.from(modelDeps),
+              owner: {
+                name: owner_name,
+                email: owner_email,
+              },
+            });
           }
-
-          const cleanName = String(dash.name)
-            .toLowerCase()
-            .replace(/[^a-z0-9_]+/g, '_')
-            .replace(/^_+|_+$/g, '');
-
-          exposures.push({
-            name: `metabase_dashboard_${dash.id}_${cleanName}`,
-            label: `[Metabase] ${dash.name}`,
-            type: 'dashboard',
-            maturity: 'high',
-            url: `${metabase_base_url.replace(/\/$/, '')}/dashboard/${dash.id}`,
-            description: dash.description || `Metabase Dashboard: ${dash.name} containing ${fullDash.ordered_cards?.length || 0} visual cards.`,
-            depends_on: Array.from(modelDeps),
-            owner: {
-              name: owner_name,
-              email: owner_email,
-            },
-          });
         }
       } catch (err) {
         logger.warn(`Failed to scan Metabase dashboards for exposures: ${err.message}`);
@@ -102,35 +120,45 @@ export class MetabaseReverseLineage {
     // 2. Scan Standalone Cards (Saved Questions)
     if (include_cards) {
       try {
-        const cards = await this.client.get('/card');
-        for (const card of cards) {
-          if (card.archived) continue;
+        let cards = [];
+        if (typeof this.client.getCards === 'function') {
+          cards = await this.client.getCards();
+        } else if (typeof this.client.get === 'function') {
+          cards = await this.client.get('/card');
+        } else if (typeof this.client.request === 'function') {
+          cards = await this.client.request('GET', '/api/card');
+        }
 
-          const modelDeps = new Set();
-          if (card.dataset_query?.type === 'native' && card.dataset_query.native?.query) {
-            const tables = this.extractTablesFromSql(card.dataset_query.native.query);
-            tables.forEach(t => modelDeps.add(`ref('${t}')`));
-          }
+        if (Array.isArray(cards)) {
+          for (const card of cards) {
+            if (card.archived) continue;
 
-          if (modelDeps.size > 0) {
-            const cleanName = String(card.name)
-              .toLowerCase()
-              .replace(/[^a-z0-9_]+/g, '_')
-              .replace(/^_+|_+$/g, '');
+            const modelDeps = new Set();
+            if (card.dataset_query?.type === 'native' && card.dataset_query.native?.query) {
+              const tables = this.extractTablesFromSql(card.dataset_query.native.query);
+              tables.forEach(t => modelDeps.add(`ref('${t}')`));
+            }
 
-            exposures.push({
-              name: `metabase_card_${card.id}_${cleanName}`,
-              label: `[Question] ${card.name}`,
-              type: 'analysis',
-              maturity: 'medium',
-              url: `${metabase_base_url.replace(/\/$/, '')}/question/${card.id}`,
-              description: card.description || `Saved Metabase Question: ${card.name}`,
-              depends_on: Array.from(modelDeps),
-              owner: {
-                name: owner_name,
-                email: owner_email,
-              },
-            });
+            if (modelDeps.size > 0) {
+              const cleanName = String(card.name)
+                .toLowerCase()
+                .replace(/[^a-z0-9_]+/g, '_')
+                .replace(/^_+|_+$/g, '');
+
+              exposures.push({
+                name: `metabase_card_${card.id}_${cleanName}`,
+                label: `[Question] ${card.name}`,
+                type: 'analysis',
+                maturity: 'medium',
+                url: `${metabase_base_url.replace(/\/$/, '')}/question/${card.id}`,
+                description: card.description || `Saved Metabase Question: ${card.name}`,
+                depends_on: Array.from(modelDeps),
+                owner: {
+                  name: owner_name,
+                  email: owner_email,
+                },
+              });
+            }
           }
         }
       } catch (err) {

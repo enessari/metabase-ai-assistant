@@ -1,12 +1,22 @@
 /**
  * dbt-Smart Card & Question Creator
  * Generates verified, business-rule-compliant Metabase questions/cards using
- * active dbt semantic memory, auto-healing SQL execution, and executive visual styling.
+ * active dbt semantic memory, auto-healing SQL execution, executive visual styling,
+ * native SQL template-tags for instant dashboard date filtering, and custom dbt meta colors.
  */
 
 import { globalSemanticMemory } from '../semantic/semantic-memory.js';
 import { SqlHealingEngine } from '../ai/sql-healing-engine.js';
 import { logger } from '../utils/logger.js';
+
+export const DEFAULT_BRAND_COLORS = [
+  '#2ECC71', // Turna Green
+  '#509EE3', // Flight Blue
+  '#F39C12', // Bus Orange
+  '#9B59B6', // Hotel Purple
+  '#1ABC9C', // Ferry Teal
+  '#E74C3C', // Red Accent
+];
 
 export class DbtSmartCardBuilder {
   constructor(metabaseClient, assistant = null) {
@@ -48,7 +58,52 @@ export class DbtSmartCardBuilder {
   }
 
   /**
-   * Build smart Metabase card with dbt semantic memory injection and healing
+   * Inject Metabase template-tags into SQL for seamless 1-second dashboard filter binding
+   */
+  injectDateTemplateTag(sql, targetDateFieldId = null) {
+    if (!sql || typeof sql !== 'string') return { sql, templateTags: {} };
+
+    let modifiedSql = sql.trim();
+    const templateTags = {};
+
+    // Check if SQL already has template tags
+    if (modifiedSql.includes('{{') && modifiedSql.includes('}}')) {
+      return { sql: modifiedSql, templateTags };
+    }
+
+    const tagId = 'date_filter_' + Math.random().toString(36).substring(2, 7);
+    const tagName = 'date_filter';
+
+    // Inject before GROUP BY, ORDER BY, LIMIT or at the end
+    const clauseRegex = /\b(GROUP\s+BY|ORDER\s+BY|LIMIT)\b/i;
+    const match = clauseRegex.exec(modifiedSql);
+
+    const hasWhere = /\bWHERE\b/i.test(modifiedSql);
+    const tagSnippet = hasWhere ? `\n[[ AND {{${tagName}}} ]]` : `\n[[ WHERE {{${tagName}}} ]]`;
+
+    if (match) {
+      const idx = match.index;
+      modifiedSql = modifiedSql.substring(0, idx) + tagSnippet + '\n' + modifiedSql.substring(idx);
+    } else {
+      modifiedSql = modifiedSql + tagSnippet;
+    }
+
+    templateTags[tagName] = {
+      id: tagId,
+      name: tagName,
+      'display-name': 'Tarih Aralığı',
+      type: 'dimension',
+      dimension: targetDateFieldId ? ['field', targetDateFieldId, null] : ['field', 'created_at', null],
+      'widget-type': 'date/all-options',
+      required: false,
+    };
+
+    return { sql: modifiedSql, templateTags };
+  }
+
+  /**
+   * Build smart Metabase card with dbt semantic memory injection, healing,
+   * template-tags date filtering, and corporate brand color palette.
    */
   async createSmartCard(options = {}) {
     const {
@@ -57,6 +112,8 @@ export class DbtSmartCardBuilder {
       collection_id = null,
       custom_name = null,
       description = null,
+      custom_color = null,
+      enable_date_filter = true,
       dry_run = false,
     } = options;
 
@@ -67,7 +124,7 @@ export class DbtSmartCardBuilder {
     // 1. Fetch active dbt semantic memory rules
     const semanticRulesContext = globalSemanticMemory.getActiveContextForQuery([question]);
     
-    // 2. Fetch database tables
+    // 2. Fetch database tables & fields
     const tables = await this.client.getDatabaseTables(database_id);
 
     // 3. Generate initial SQL with AI assistant + injected business rules
@@ -78,7 +135,6 @@ export class DbtSmartCardBuilder {
         tables
       );
     } else {
-      // Fallback simple query
       initialSql = `SELECT * FROM ${tables[0]?.name || 'orders'} LIMIT 50;`;
     }
 
@@ -94,14 +150,23 @@ export class DbtSmartCardBuilder {
       throw new Error(`Failed to generate working SQL for question "${question}": ${healResult.error}`);
     }
 
-    const finalSql = healResult.final_sql || initialSql;
+    let finalSql = healResult.final_sql || initialSql;
     const sampleData = healResult.data || {};
     const columns = sampleData.columns || [];
     const rows = sampleData.rows || [];
 
-    // 5. Infer display visualization settings
+    // 5. Inject template-tags for native SQL dashboard date filter binding
+    let templateTags = {};
+    if (enable_date_filter) {
+      const tagResult = this.injectDateTemplateTag(finalSql);
+      finalSql = tagResult.sql;
+      templateTags = tagResult.templateTags;
+    }
+
+    // 6. Infer display visualization settings and brand colors
     const displayType = this.inferDisplayType(columns, rows);
     const cardName = custom_name || `[dbt Verified] ${question.length > 50 ? question.substring(0, 47) + '...' : question}`;
+    const brandColors = custom_color ? [custom_color, ...DEFAULT_BRAND_COLORS] : DEFAULT_BRAND_COLORS;
 
     const cardPayload = {
       name: cardName,
@@ -112,11 +177,12 @@ export class DbtSmartCardBuilder {
         type: 'native',
         native: {
           query: finalSql,
-          'template-tags': {},
+          'template-tags': templateTags,
         },
       },
       display: displayType,
       visualization_settings: {
+        'graph.colors': brandColors,
         'table.pivot': false,
         'table.cell_column': columns[0]?.name || null,
       },
@@ -136,10 +202,12 @@ export class DbtSmartCardBuilder {
       name: cardPayload.name,
       display: cardPayload.display,
       sql: finalSql,
+      template_tags: templateTags,
       healing_applied: healResult.healing_applied || false,
       healing_trail: healResult.healing_trail || [],
       semantic_rules_applied: semanticRulesContext ? true : false,
       sample_rows_count: rows.length,
+      brand_colors: brandColors,
       dry_run,
       card: createdCard || cardPayload,
     };

@@ -7,7 +7,43 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import os from 'os';
+import { fileURLToPath } from 'url';
 import { logger } from '../utils/logger.js';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const PROJECT_ROOT = path.resolve(__dirname, '../../');
+
+function resolveDefaultStoragePath(customPath) {
+  if (customPath) {
+    return path.resolve(customPath);
+  }
+  if (process.env.METABASE_CACHE_PATH) {
+    return path.resolve(process.env.METABASE_CACHE_PATH);
+  }
+  if (process.env.METABASE_CACHE_DIR) {
+    return path.join(path.resolve(process.env.METABASE_CACHE_DIR), 'semantic-memory.json');
+  }
+
+  const cwd = process.cwd();
+  // If cwd is valid, writable, and not root directory ('/' or 'C:\\' etc.)
+  if (cwd && cwd !== '/' && cwd !== '\\' && !cwd.match(/^[a-zA-Z]:\\?$/)) {
+    return path.resolve(cwd, '.metabase-cache/semantic-memory.json');
+  }
+
+  // Fallback to project root or user home directory
+  if (PROJECT_ROOT && fs.existsSync(PROJECT_ROOT)) {
+    try {
+      return path.join(PROJECT_ROOT, '.metabase-cache', 'semantic-memory.json');
+    } catch {
+      // fallback to user home directory
+    }
+  }
+
+  const homeDir = os.homedir() || os.tmpdir();
+  return path.join(homeDir, '.metabase-cache', 'semantic-memory.json');
+}
 
 export const RULE_STATUS = {
   PENDING: 'PENDING_APPROVAL',
@@ -25,7 +61,7 @@ export const RULE_CATEGORIES = {
 
 export class SemanticMemory {
   constructor(options = {}) {
-    this.storagePath = options.storagePath || path.resolve('.metabase-cache/semantic-memory.json');
+    this.storagePath = resolveDefaultStoragePath(options.storagePath);
     this.rules = new Map();
     this.load();
   }
@@ -71,6 +107,29 @@ export class SemanticMemory {
 
       fs.writeFileSync(this.storagePath, JSON.stringify(payload, null, 2), 'utf8');
     } catch (err) {
+      // If saving failed due to root or permissions, attempt fallback to home/tmpdir
+      if (this.storagePath.startsWith('/.metabase-cache') || err.code === 'EACCES' || err.code === 'ENOENT' || err.code === 'EPERM') {
+        try {
+          const fallbackPath = path.join(os.homedir() || os.tmpdir(), '.metabase-cache', 'semantic-memory.json');
+          const fallbackDir = path.dirname(fallbackPath);
+          if (!fs.existsSync(fallbackDir)) {
+            fs.mkdirSync(fallbackDir, { recursive: true });
+          }
+          const payload = {
+            version: '1.0.0',
+            governance_policy: 'EXPLICIT_APPROVAL_REQUIRED_NO_HARD_DELETES',
+            updated_at: new Date().toISOString(),
+            total_rules: this.rules.size,
+            rules: Array.from(this.rules.values()),
+          };
+          fs.writeFileSync(fallbackPath, JSON.stringify(payload, null, 2), 'utf8');
+          this.storagePath = fallbackPath;
+          logger.info(`Saved semantic memory to fallback location: ${fallbackPath}`);
+          return;
+        } catch (fallbackErr) {
+          logger.error(`Failed to save semantic memory to fallback location: ${fallbackErr.message}`);
+        }
+      }
       logger.error(`Failed to save semantic memory to ${this.storagePath}: ${err.message}`);
     }
   }

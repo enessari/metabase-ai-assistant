@@ -23,23 +23,23 @@ export const logger = winston.createLogger({
     winston.format.json()
   ),
   transports: [
-    // Console transport
-    new winston.transports.Console({
+    // Stream transport to stderr - preserves pure JSON-RPC on stdout
+    new winston.transports.Stream({
+      stream: process.stderr,
       format: combine(
         colorize(),
         timestamp({ format: 'HH:mm:ss' }),
         consoleFormat
       )
     })
-    // File transports removed to avoid EPERM in restricted env
   ]
 });
 
-// Add console methods for colored output
+// Add console methods for colored output routed to stderr
 export const console = {
-  log: (msg) => console.log(chalk.white(msg)),
-  info: (msg) => console.log(chalk.cyan(msg)),
-  success: (msg) => console.log(chalk.green(msg)),
-  warning: (msg) => console.log(chalk.yellow(msg)),
-  error: (msg) => console.log(chalk.red(msg))
+  log: (msg) => process.stderr.write(chalk.white(msg) + '\n'),
+  info: (msg) => process.stderr.write(chalk.cyan(msg) + '\n'),
+  success: (msg) => process.stderr.write(chalk.green(msg) + '\n'),
+  warning: (msg) => process.stderr.write(chalk.yellow(msg) + '\n'),
+  error: (msg) => process.stderr.write(chalk.red(msg) + '\n')
 };

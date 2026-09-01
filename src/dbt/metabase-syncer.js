@@ -1,12 +1,12 @@
 /**
  * dbt-to-Metabase Metadata & Metrics Syncer
  * Synchronizes dbt schema descriptions, display names, semantic data types,
- * foreign keys, and MetricFlow metrics directly into Metabase Data Model.
+ * visibility types, foreign keys, and MetricFlow metrics directly into Metabase Data Model.
+ * Fully compatible with Metabase v0.50+ (Saved Questions / Models / Collections).
  */
 
 import { DbtDeepScanner } from './dbt-deep-scanner.js';
 import { logger } from '../utils/logger.js';
-import { formatStructuredResponse } from '../utils/structured-response.js';
 
 export const METABASE_SEMANTIC_TYPE_MAP = {
   currency: 'type/Currency',
@@ -63,7 +63,7 @@ export class DbtMetabaseSyncer {
 
     if (lowerName.includes('email')) return 'type/Email';
     if (lowerName.includes('phone') || lowerName.includes('gsm')) return 'type/CellPhoneNumber';
-    if (lowerName.includes('price') || lowerName.includes('amount') || lowerName.includes('cost') || lowerName.includes('revenue') || lowerName.includes('margin') || lowerName.includes('sales')) return 'type/Currency';
+    if (lowerName.includes('price') || lowerName.includes('amount') || lowerName.includes('cost') || lowerName.includes('revenue') || lowerName.includes('margin') || lowerName.includes('sales') || lowerName.includes('fark') || lowerName.includes('komisyon')) return 'type/Currency';
     if (lowerName.includes('created_at') || lowerName.includes('signup_date') || lowerName.includes('inserted_at')) return 'type/CreationTimestamp';
     if (lowerName.includes('date') || lowerType.includes('date')) return 'type/CreationDate';
     if (lowerName.includes('country')) return 'type/Country';
@@ -74,7 +74,7 @@ export class DbtMetabaseSyncer {
   }
 
   /**
-   * Sync dbt metadata (table names, column descriptions, semantic types, FKs) into Metabase
+   * Sync dbt metadata (table names, column descriptions, semantic types, visibility, caveats, FKs) into Metabase
    */
   async syncMetadata(options = {}) {
     const { database_id, dbt_project_dir = null, dry_run = false } = options;
@@ -113,13 +113,22 @@ export class DbtMetabaseSyncer {
       if (!mbTable) continue;
 
       const tableUpdates = {};
-      // Sync table display_name and description if available
-      const customLabel = dbtModel.meta?.metabase?.label || dbtModel.meta?.label;
+      const customLabel = dbtModel.meta?.metabase?.label || dbtModel.meta?.metabase?.display_name || dbtModel.meta?.label || dbtModel.meta?.display_name;
       if (customLabel && customLabel !== mbTable.display_name) {
         tableUpdates.display_name = customLabel;
       }
       if (dbtModel.description && dbtModel.description !== mbTable.description) {
         tableUpdates.description = dbtModel.description;
+      }
+      // Visibility type & Caveats support (gouline/dbt-metabase compatibility)
+      if (dbtModel.meta?.metabase?.visibility_type) {
+        tableUpdates.visibility_type = dbtModel.meta.metabase.visibility_type;
+      }
+      if (dbtModel.meta?.metabase?.points_of_interest) {
+        tableUpdates.points_of_interest = dbtModel.meta.metabase.points_of_interest;
+      }
+      if (dbtModel.meta?.metabase?.caveats) {
+        tableUpdates.caveats = dbtModel.meta.metabase.caveats;
       }
 
       if (Object.keys(tableUpdates).length > 0) {
@@ -139,7 +148,7 @@ export class DbtMetabaseSyncer {
         });
       }
 
-      // 4. Sync column descriptions and semantic types
+      // 4. Sync column descriptions, semantic types, visibility and formatting
       const mbFields = await this.client.getTableFields(mbTable.id);
       for (const field of mbFields) {
         const dbtCol = dbtModel.columns[field.name];
@@ -153,6 +162,17 @@ export class DbtMetabaseSyncer {
         const inferredType = this.inferSemanticType(field.name, dbtCol.meta, field.base_type);
         if (inferredType && field.semantic_type !== inferredType) {
           fieldUpdates.semantic_type = inferredType;
+        }
+
+        // Visibility type (sensitive, details-only, normal)
+        const visibilityType = dbtCol.meta?.metabase?.visibility_type || dbtCol.meta?.visibility_type;
+        if (visibilityType && field.visibility_type !== visibilityType) {
+          fieldUpdates.visibility_type = visibilityType;
+        }
+
+        // Has field values dropdown (list, none, auto-list)
+        if (dbtCol.meta?.metabase?.has_field_values) {
+          fieldUpdates.has_field_values = dbtCol.meta.metabase.has_field_values;
         }
 
         if (Object.keys(fieldUpdates).length > 0) {
@@ -180,7 +200,27 @@ export class DbtMetabaseSyncer {
   }
 
   /**
-   * Sync dbt MetricFlow / YAML metrics into Metabase official Metrics (/api/metric)
+   * Helper to find or create the Official Metrics collection in Metabase (v0.50+ compatible)
+   */
+  async ensureMetricsCollection() {
+    try {
+      const collections = await this.client.get('/collection');
+      const existing = collections?.find?.(c => c.name === 'Resmi Metrikler' || c.name === 'Official Metrics');
+      if (existing) return existing.id;
+
+      const created = await this.client.post('/collection', {
+        name: 'Resmi Metrikler',
+        description: 'dbt MetricFlow tarafından otomatik senkronize edilen resmi iş metrikleri',
+        color: '#2ECC71',
+      });
+      return created.id;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Sync dbt MetricFlow / YAML metrics into Metabase (v0.50+ Saved Question & Model Compatible)
    */
   async syncMetrics(options = {}) {
     const { database_id, dbt_project_dir = null, dry_run = false } = options;
@@ -202,56 +242,90 @@ export class DbtMetabaseSyncer {
       mbTableMap.set(t.name.toLowerCase(), t);
     }
 
+    const collectionId = dry_run ? 1 : await this.ensureMetricsCollection();
     const createdMetrics = [];
     const skippedMetrics = [];
 
     for (const [metricName, metricDef] of this.scanner.metrics.entries()) {
-      if (!metricDef.model) {
+      let targetModel = metricDef.model;
+
+      // 1. Domain prefix fallback resolution
+      if (!targetModel) {
+        const mname = metricName.toLowerCase();
+        if (mname.startsWith('company_')) targetModel = 'mrt_executive_daily_sales';
+        else if (mname.startsWith('flight_')) targetModel = 'mrt_flight_daily_sales';
+        else if (mname.startsWith('bus_')) targetModel = 'mrt_bus_daily_sales';
+        else if (mname.startsWith('car_')) targetModel = 'mrt_car_daily_sales';
+        else if (mname.startsWith('hotel_')) targetModel = 'mrt_hotel_daily_sales';
+        else if (mname.startsWith('ferry_')) targetModel = 'mrt_ferry_daily_sales';
+      }
+
+      if (!targetModel) {
         skippedMetrics.push({ name: metricName, reason: 'No underlying model defined' });
         continue;
       }
 
-      const mbTable = mbTableMap.get(metricDef.model.toLowerCase());
+      const mbTable = mbTableMap.get(targetModel.toLowerCase());
       if (!mbTable) {
-        skippedMetrics.push({ name: metricName, reason: `Underlying table ${metricDef.model} not found in Metabase` });
+        skippedMetrics.push({ name: metricName, reason: `Underlying table ${targetModel} not found in Metabase` });
         continue;
       }
 
-      const metricPayload = {
-        name: metricDef.label || metricName,
-        description: metricDef.description || `dbt Metric: ${metricName} from model ${metricDef.model}`,
-        table_id: mbTable.id,
-        definition: {
-          'source-table': mbTable.id,
-          aggregation: [metricDef.type === 'count_distinct' ? 'distinct' : (metricDef.type || 'sum'), ['field', metricDef.expression || 'id', null]],
+      const mbFields = await this.client.getTableFields(mbTable.id);
+      const targetFieldName = metricDef.expression || metricName;
+      const targetField = mbFields.find(f => f.name.toLowerCase() === targetFieldName.toLowerCase()) || mbFields[0];
+
+      // Custom color support from dbt meta
+      const customColor = metricDef.meta?.metabase?.color || metricDef.meta?.color || '#2ECC71';
+
+      // v0.50+ Card Payload (Saved Metric / Scalar Question)
+      const metricCardPayload = {
+        name: metricDef.label || metricName.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase()),
+        description: metricDef.description || `dbt Metric: ${metricName} (Model: ${targetModel})`,
+        collection_id: collectionId,
+        dataset_query: {
+          database: database_id,
+          type: 'query',
+          query: {
+            'source-table': mbTable.id,
+            aggregation: [metricDef.type === 'count_distinct' ? 'distinct' : (metricDef.type || 'sum'), ['field', targetField ? targetField.id : mbTable.id, null]],
+          },
+        },
+        display: 'scalar',
+        visualization_settings: {
+          'graph.colors': [customColor],
+          'scalar.field': targetField ? targetField.name : 'id',
         },
       };
 
       if (!dry_run) {
         try {
-          const res = await this.client.post('/metric', metricPayload);
+          const res = await this.client.post('/card', metricCardPayload);
           createdMetrics.push({
             name: metricName,
-            label: metricPayload.name,
-            metric_id: res.id,
+            label: metricCardPayload.name,
+            card_id: res.id,
             table: mbTable.name,
+            color: customColor,
           });
         } catch (e) {
-          logger.warn(`Failed to create Metabase metric ${metricName}: ${e.message}`);
+          logger.warn(`Failed to create Metabase metric card ${metricName}: ${e.message}`);
           skippedMetrics.push({ name: metricName, reason: e.message });
         }
       } else {
         createdMetrics.push({
           name: metricName,
-          label: metricPayload.name,
+          label: metricCardPayload.name,
           table: mbTable.name,
-          payload: metricPayload,
+          color: customColor,
+          payload: metricCardPayload,
         });
       }
     }
 
     return {
       database_id,
+      collection_id: collectionId,
       metrics_created: createdMetrics.length,
       metrics_skipped: skippedMetrics.length,
       created: createdMetrics,

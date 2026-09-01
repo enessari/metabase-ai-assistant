@@ -428,9 +428,9 @@ class MetabaseMCPServer {
   }
 
   async run() {
+    await this.initialize();
     const transport = new StdioServerTransport();
     await this.server.connect(transport);
-    await this.initialize();
     logger.info('Metabase AI Assistant MCP server running on stdio');
   }
 }
@@ -441,19 +441,8 @@ export { MetabaseMCPServer };
 if (import.meta.url === `file://${process.argv[1]}`) {
   const server = new MetabaseMCPServer();
 
-  if (process.stdout.isTTY) {
-    console.log('🚀 Metabase AI Assistant MCP Server');
-    console.log('📦 Version 5.0.0');
-    console.log('🔧 Env: ' + (process.env.METABASE_URL || 'Not set'));
-    console.log('🔒 Read-only: ' + (isReadOnlyMode() ? 'YES' : 'NO'));
-    console.log('');
-    console.log('Starting MCP server...');
-  }
-
   server.run().catch((error) => {
-    if (process.stdout.isTTY) {
-      console.error('❌ Failed to start MCP server:', error.message);
-    }
+    logger.error('Failed to start MCP server:', error);
     process.exit(1);
   });
 }

@@ -97,4 +97,16 @@ describe('Governance-First Semantic Memory Unit Tests', () => {
     expect(restored.rule.status).toBe(RULE_STATUS.ACTIVE);
     expect(memory.rules.get(proposed.rule.rule_id).status).toBe(RULE_STATUS.ACTIVE);
   });
+
+  test('safely resolves storage path and falls back without throwing when cwd is root', () => {
+    const originalCwd = process.cwd;
+    try {
+      process.cwd = () => '/';
+      const rootMemory = new SemanticMemory();
+      expect(rootMemory.storagePath).not.toBe('/.metabase-cache/semantic-memory.json');
+      expect(rootMemory.storagePath.includes('.metabase-cache')).toBe(true);
+    } finally {
+      process.cwd = originalCwd;
+    }
+  });
 });
