@@ -1,5 +1,5 @@
 # Metabase AI Assistant — Model Context Protocol (MCP) Server
-
+ 
 [![npm version](https://img.shields.io/npm/v/metabase-ai-assistant.svg?style=flat-square)](https://www.npmjs.com/package/metabase-ai-assistant)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg?style=flat-square)](https://opensource.org/licenses/Apache-2.0)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-brightgreen.svg?style=flat-square)](https://nodejs.org/)
@@ -7,7 +7,7 @@
 
 Metabase AI Assistant is an enterprise-grade Model Context Protocol (MCP) server that connects Large Language Models (LLMs), AI coding assistants, and automated data workflows directly to your Metabase Business Intelligence instance.
 
-Featuring **148 dedicated tools**, native **dbt Semantic Layer** integration, **Lightdash Code-as-BI YAML-to-Dashboard** generation, **Cube.js-style Pre-aggregations & Multi-Hop Lineage Joins**, **Omni.co Controlled Semantic-to-YAML bridge**, autonomous self-healing SQL execution, full-scale dashboard architecting, proactive anomaly detection, query index advisory, zero-leak PII masking, and strict security guardrails.
+Featuring **152 dedicated tools**, native **dbt Metadata & Metrics Auto-Syncer**, **Metabase to dbt Reverse Lineage Exposures**, **dbt-Smart Question Creator**, **Lightdash Code-as-BI YAML-to-Dashboard** generation, **Cube.js-style Pre-aggregations & Multi-Hop Lineage Joins**, **Omni.co Controlled Semantic-to-YAML bridge**, autonomous self-healing SQL execution, full-scale dashboard architecting, proactive anomaly detection, query index advisory, zero-leak PII masking, and strict security guardrails. Works seamlessly with Claude, Cursor, ChatGPT, Gemini, and **Google Antigravity**.
 
 ---
 
@@ -23,7 +23,7 @@ Featuring **148 dedicated tools**, native **dbt Semantic Layer** integration, **
 ## Table of Contents
 
 - [Core Architectural Highlights](#core-architectural-highlights)
-- [Next-Gen Autonomous Features (v5.2)](#next-gen-autonomous-features-v52)
+- [Next-Gen Autonomous Features (v5.3)](#next-gen-autonomous-features-v53)
 - [Metabase Version Compatibility](#metabase-version-compatibility)
 - [Quick Start & Installation](#quick-start--installation)
 - [Client Configuration & Desktop Setup](#client-configuration--desktop-setup)
@@ -31,8 +31,8 @@ Featuring **148 dedicated tools**, native **dbt Semantic Layer** integration, **
   - [Cursor IDE, Windsurf & VS Code](#2-cursor-ide-windsurf--vs-code)
   - [ChatGPT Custom GPTs & Actions](#3-chatgpt-custom-gpts--actions)
   - [Google Gemini & AI Studio](#4-google-gemini--google-ai-studio)
-  - [Cloudflare Workers (Serverless Edge)](#5-cloudflare-workers-serverless-edge)
-- [Tool Categories Overview (148 Tools)](#tool-categories-overview-148-tools)
+  - [Google Antigravity SDK & MCP](#5-google-antigravity-sdk--mcp)
+- [Tool Categories Overview (152 Tools)](#tool-categories-overview-152-tools)
 - [Testing & Quality Assurance](#testing--quality-assurance)
 - [Project Roadmap & Upcoming Features](ROADMAP.md)
 - [License](#license)

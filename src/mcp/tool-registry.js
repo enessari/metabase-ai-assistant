@@ -5204,6 +5204,126 @@ export function getToolDefinitions() {
           }
         }
       }
+    },
+    {
+      name: 'dbt_sync_metadata_to_metabase',
+      title: 'Sync dbt Metadata to Metabase Data Model',
+      description: '🔄 [dbt ➔ METABASE SYNC] Synchronize dbt table display names, column descriptions, semantic data types (type/Currency, type/CreationDate, type/Category, type/FK), and foreign keys directly into Metabase Data Model via API.',
+      readOnlyHint: false,
+      inputSchema: {
+        type: 'object',
+        properties: {
+          database_id: {
+            type: 'number',
+            description: 'Metabase Database ID to sync metadata into'
+          },
+          dbt_project_dir: {
+            type: 'string',
+            description: 'Optional path to dbt project directory. Defaults to current workspace.'
+          },
+          dry_run: {
+            type: 'boolean',
+            description: 'Dry run mode to simulate changes without writing to Metabase (default: false)',
+            default: false
+          }
+        },
+        required: ['database_id']
+      }
+    },
+    {
+      name: 'dbt_sync_metrics_to_metabase',
+      title: 'Sync dbt Metrics to Official Metabase Metrics',
+      description: '📊 [dbt METRICS ➔ METABASE] Ingest dbt MetricFlow and YAML metric definitions into official Metabase Metrics (/api/metric) so users can select verified business formulas in the Metabase query builder.',
+      readOnlyHint: false,
+      inputSchema: {
+        type: 'object',
+        properties: {
+          database_id: {
+            type: 'number',
+            description: 'Metabase Database ID to bind metrics to'
+          },
+          dbt_project_dir: {
+            type: 'string',
+            description: 'Optional path to dbt project directory.'
+          },
+          dry_run: {
+            type: 'boolean',
+            description: 'Simulate metric creation without writing (default: false)',
+            default: false
+          }
+        },
+        required: ['database_id']
+      }
+    },
+    {
+      name: 'dbt_generate_exposures_from_metabase',
+      title: 'Generate dbt Reverse Lineage Exposures from Metabase',
+      description: '🔁 [REVERSE LINEAGE] Scan all Metabase Dashboards and Questions, extract underlying dbt model dependencies (fct_, dim_, stg_), and generate models/exposures/_metabase__exposures.yml for dbt Docs and Lineage DAG.',
+      readOnlyHint: true,
+      inputSchema: {
+        type: 'object',
+        properties: {
+          metabase_base_url: {
+            type: 'string',
+            description: 'Base URL of your Metabase instance (e.g. "https://metabase.company.com")'
+          },
+          include_dashboards: {
+            type: 'boolean',
+            description: 'Include dashboard exposures (default: true)',
+            default: true
+          },
+          include_cards: {
+            type: 'boolean',
+            description: 'Include standalone card question exposures (default: true)',
+            default: true
+          },
+          owner_name: {
+            type: 'string',
+            description: 'Owner name for dbt exposures'
+          },
+          owner_email: {
+            type: 'string',
+            description: 'Owner email for dbt exposures'
+          }
+        }
+      }
+    },
+    {
+      name: 'dbt_smart_create_card',
+      title: 'Create Verified Metabase Card with dbt Semantic Rules',
+      description: '🤖 [dbt SMART QUESTION] Natural language question to verified Metabase Question Card. Injects active dbt semantic rules, auto-heals SQL, applies zero-leak PII masking, and saves with optimal executive visual chart type.',
+      readOnlyHint: false,
+      inputSchema: {
+        type: 'object',
+        properties: {
+          question: {
+            type: 'string',
+            description: 'Natural language question (e.g. "Monthly net sales excluding delivery pay in Turna")'
+          },
+          database_id: {
+            type: 'number',
+            description: 'Metabase Database ID'
+          },
+          collection_id: {
+            type: 'number',
+            description: 'Optional collection ID to save the card into'
+          },
+          custom_name: {
+            type: 'string',
+            description: 'Optional custom name for the saved card'
+          },
+          description: {
+            type: 'string',
+            description: 'Optional card description'
+          },
+          dry_run: {
+            type: 'boolean',
+            description: 'Simulate without saving card to Metabase (default: false)',
+            default: false
+          }
+        },
+        required: ['question', 'database_id']
+      }
     }
   ]);
 }

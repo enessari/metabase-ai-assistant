@@ -33,6 +33,7 @@ Bünyesinde barındırdığı **143 özel araç**, yerel **dbt Semantik Katman**
   - [Google Gemini ve AI Studio](#4-google-gemini-ve-ai-studio)
   - [Cloudflare Workers Dağıtımı](#5-cloudflare-workers-sunucusuz-dağıtım)
 - [Araç Kategorileri (143 Araç)](#araç-kategorileri-143-araç)
+- [Araç Kategorileri (152 Araç)](#araç-kategorileri-152-araç)
 - [Test ve Kalite Güvencesi](#test-ve-kalite-güvencesi)
 - [Geliştirme Yol Haritası (Roadmap)](ROADMAP.md)
 - [Lisans](#lisans)
@@ -50,6 +51,20 @@ Metabase AI Assistant; Claude Desktop, Cursor, VS Code, ChatGPT ve Gemini gibi p
 5. **AI İndeks & Materialized View Danışmanı (`ai_query_index_advisor`)**: `EXPLAIN` analiz planlarını inceleyerek DBA'ler için optimize composite index ve Materialized View önerir.
 6. **Proaktif KPI Anomali Tespiti (`ai_analytics_detect_anomalies`)**: Z-Score, Tukey IQR ve Bollinger Bantları ile metrik sapmalarını ve olası kök nedenlerini raporlar.
 7. **Kurumsal Sıfır Sızıntı PII Maskeleme**: E-posta, telefon, TC/SSN ve kredi kartı gibi hassas verileri AI modellerine gönderilmeden önce anında maskeler.
+
+---
+
+## 🚀 Öne Çıkan Süper Yetenekler (v5.3 — 152 Araç)
+
+1. 🔄 **`dbt_sync_metadata_to_metabase` (Otomatik Veri Modeli Eşitleyici)**: dbt tablo etiketlerini, zengin Türkçe alan açıklamalarını, semantik tipleri (`type/Currency`, `type/CreationDate`, `type/Category`, `type/FK`) ve yabancı anahtar (FK) ilişkilerini tek tıkla Metabase Data Model'e yazar.
+2. 📊 **`dbt_sync_metrics_to_metabase` (Metabase Metrics Oluşturucu)**: dbt MetricFlow'daki tüm metrikleri Metabase resmi `/api/metric` nesneleri olarak kaydeder.
+3. 🔁 **`dbt_generate_exposures_from_metabase` (Tersine Lineage / Reverse Lineage)**: Metabase panolarını ve sorularını tarayarak dbt Lineage ve dbt Docs için `models/exposures/_metabase__exposures.yml` dosyasını otomatik üretir.
+4. 🤖 **`dbt_smart_create_card` (dbt Kurallarıyla Akıllı Soru / Kart Üretici)**: Şirkete özel iş kurallarını (`SemanticMemory`) sorguya enjekte eder, kendi kendini onaran (self-healing) SQL çalıştırır ve Metabase'de hazır bir Card oluşturur.
+5. 🔍 **`dbt_project_scan_deep` (Derin dbt Proje & Şema Tarayıcısı)**: 9 katmanlı model hiyerarşisi (`marts_fact` > `staging`), `doc('...')` ve `catalog.json` profil çıkarma.
+6. 🧬 **`dbt_lineage_joins_graph` (Cube.js Multi-Hop Joins)**: Dijkstra Min-Heap ile en kısa join rotaları ve döngüsüz DAG.
+7. ⚡ **`dbt_semantic_preagg_advisor` (Cube.js Pre-Aggregation)**: 7 SQL lehçesinde Materialized View ve HLL distinct count öneri motoru.
+8. 📊 **`dbt_build_dashboard_from_yaml` (Lightdash Code-as-BI)**: dbt YAML'dan Metabase'de çakışmasız 24 kolonlu yönetici panoları kurma.
+9. 🔄 **`dbt_semantic_export_yaml` (Omni.co Semantik Köprü)**: Onaylanmış iş kurallarını dbt `schema.yml` formatında dışa aktarma.
 
 ---
 

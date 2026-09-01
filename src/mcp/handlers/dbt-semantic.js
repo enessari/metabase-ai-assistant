@@ -11,6 +11,9 @@ import { DbtLineageGraph } from '../../dbt/lineage-joins.js';
 import { DbtPreaggAdvisor } from '../../dbt/preagg-advisor.js';
 import { DbtDashboardBuilder } from '../../dbt/dbt-dashboard-builder.js';
 import { DbtYamlExporter } from '../../dbt/dbt-yaml-exporter.js';
+import { DbtMetabaseSyncer } from '../../dbt/metabase-syncer.js';
+import { MetabaseReverseLineage } from '../../dbt/metabase-reverse-lineage.js';
+import { DbtSmartCardBuilder } from '../../dbt/dbt-smart-card-builder.js';
 import { globalSemanticMemory, RULE_CATEGORIES, RULE_STATUS } from '../../semantic/semantic-memory.js';
 import { logger } from '../../utils/logger.js';
 import { formatStructuredResponse } from '../../utils/structured-response.js';
@@ -21,6 +24,9 @@ export class DbtSemanticHandler extends BaseHandler {
     super(metabaseClient, assistant, metadataClient);
     this.dbtParser = new DbtParser();
     this.deepScanner = new DbtDeepScanner();
+    this.syncer = new DbtMetabaseSyncer(metabaseClient, this.deepScanner);
+    this.reverseLineage = new MetabaseReverseLineage(metabaseClient);
+    this.smartCardBuilder = new DbtSmartCardBuilder(metabaseClient, assistant);
   }
 
   /**
@@ -803,6 +809,152 @@ export class DbtSemanticHandler extends BaseHandler {
     }
   }
 
+  /**
+   * 1. Sync dbt metadata (table names, column descriptions, semantic types, FKs) into Metabase
+   */
+  async handleDbtSyncMetadataToMetabase(args = {}) {
+    const { database_id, dbt_project_dir, dry_run = false } = args;
+
+    try {
+      if (!database_id) {
+        throw new Error('database_id parameter is required.');
+      }
+
+      if (isReadOnlyMode() && !dry_run) {
+        throw new Error('Metabase is running in READ-ONLY mode. Metadata synchronization requires write mode or dry_run: true.');
+      }
+
+      const result = await this.syncer.syncMetadata({
+        database_id,
+        dbt_project_dir,
+        dry_run,
+      });
+
+      const text = `🔄 **[dbt METADATA TO METABASE SYNC COMPLETE]**\n\n` +
+        `• **Tables Synchronized**: ${result.tables_updated}\n` +
+        `• **Fields & Semantic Types Synchronized**: ${result.fields_updated}\n` +
+        `• **Mode**: ${dry_run ? 'Dry-Run (Simulated)' : 'Live Applied'}\n\n` +
+        (result.details.length > 0 ? `### Sync Details:\n` + result.details.slice(0, 10).map(d => `- **${d.name || d.field}** (${d.type}): ${JSON.stringify(d.updates)}`).join('\n') : `All fields and tables are already up to date.`);
+
+      return formatStructuredResponse(text, result);
+    } catch (error) {
+      logger.error(`Error in handleDbtSyncMetadataToMetabase: ${error.message}`);
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `❌ Metadata Sync Error: ${error.message}` }],
+      };
+    }
+  }
+
+  /**
+   * 2. Sync dbt MetricFlow / YAML metrics into official Metabase Metrics (/api/metric)
+   */
+  async handleDbtSyncMetricsToMetabase(args = {}) {
+    const { database_id, dbt_project_dir, dry_run = false } = args;
+
+    try {
+      if (!database_id) {
+        throw new Error('database_id parameter is required.');
+      }
+
+      if (isReadOnlyMode() && !dry_run) {
+        throw new Error('Metabase is running in READ-ONLY mode. Metrics synchronization requires write mode or dry_run: true.');
+      }
+
+      const result = await this.syncer.syncMetrics({
+        database_id,
+        dbt_project_dir,
+        dry_run,
+      });
+
+      const text = `📊 **[dbt METRICS TO METABASE SYNC COMPLETE]**\n\n` +
+        `• **Metrics Created**: ${result.metrics_created}\n` +
+        `• **Metrics Skipped**: ${result.metrics_skipped}\n` +
+        `• **Mode**: ${dry_run ? 'Dry-Run (Simulated)' : 'Live Applied'}\n\n` +
+        (result.created.length > 0 ? `### Created Metabase Metrics:\n` + result.created.map(m => `- **${m.label || m.name}** (Table: ${m.table})`).join('\n') : `No new metrics to sync.`);
+
+      return formatStructuredResponse(text, result);
+    } catch (error) {
+      logger.error(`Error in handleDbtSyncMetricsToMetabase: ${error.message}`);
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `❌ Metrics Sync Error: ${error.message}` }],
+      };
+    }
+  }
+
+  /**
+   * 3. Reverse Lineage: Generate dbt exposures YAML from all Metabase Dashboards and Cards
+   */
+  async handleDbtGenerateExposuresFromMetabase(args = {}) {
+    const { metabase_base_url, include_cards = true, include_dashboards = true, owner_name, owner_email } = args;
+
+    try {
+      const result = await this.reverseLineage.generateExposures({
+        metabase_base_url,
+        include_cards,
+        include_dashboards,
+        owner_name,
+        owner_email,
+      });
+
+      return formatStructuredResponse(
+        `🔁 **[METABASE TO dbt REVERSE LINEAGE EXPOSURES]**\n\n` +
+        `Discovered **${result.total_exposures} exposures** from your Metabase instance.\n` +
+        `Copy the generated YAML below into \`models/exposures/_metabase__exposures.yml\`:\n\n\`\`\`yaml\n${result.yaml}\n\`\`\``,
+        result
+      );
+    } catch (error) {
+      logger.error(`Error in handleDbtGenerateExposuresFromMetabase: ${error.message}`);
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `❌ Reverse Lineage Error: ${error.message}` }],
+      };
+    }
+  }
+
+  /**
+   * 4. Smart Card Creator: Generate verified Metabase Card using dbt semantic rules
+   */
+  async handleDbtSmartCreateCard(args = {}) {
+    const { question, database_id, collection_id, custom_name, description, dry_run = false } = args;
+
+    try {
+      if (!question || !database_id) {
+        throw new Error('Both question and database_id are required.');
+      }
+
+      if (isReadOnlyMode() && !dry_run) {
+        throw new Error('Metabase is running in READ-ONLY mode. Creating cards requires write mode or dry_run: true.');
+      }
+
+      const result = await this.smartCardBuilder.createSmartCard({
+        question,
+        database_id,
+        collection_id,
+        custom_name,
+        description,
+        dry_run,
+      });
+
+      const text = `🤖 **[dbt-VERIFIED QUESTION CARD CREATED]**\n\n` +
+        `• **Card Name**: **${result.name}**\n` +
+        `• **Display Chart Type**: \`${result.display}\`\n` +
+        `• **Semantic Rules Applied**: ${result.semantic_rules_applied ? '✅ Yes' : 'ℹ️ Standard'}\n` +
+        `• **Healing Applied**: ${result.healing_applied ? '⚡ Auto-Healed' : '✅ First-Pass Valid'}\n` +
+        `• **Sample Rows**: ${result.sample_rows_count}\n\n` +
+        `\`\`\`sql\n${result.sql}\n\`\`\``;
+
+      return formatStructuredResponse(text, result);
+    } catch (error) {
+      logger.error(`Error in handleDbtSmartCreateCard: ${error.message}`);
+      return {
+        isError: true,
+        content: [{ type: 'text', text: `❌ Smart Card Creation Error: ${error.message}` }],
+      };
+    }
+  }
+
   routes() {
     return {
       dbt_inspect_models: this.handleDbtInspectModels.bind(this),
@@ -812,6 +964,10 @@ export class DbtSemanticHandler extends BaseHandler {
       dbt_semantic_preagg_advisor: this.handleDbtSemanticPreaggAdvisor.bind(this),
       dbt_build_dashboard_from_yaml: this.handleDbtBuildDashboardFromYaml.bind(this),
       dbt_semantic_export_yaml: this.handleDbtSemanticExportYaml.bind(this),
+      dbt_sync_metadata_to_metabase: this.handleDbtSyncMetadataToMetabase.bind(this),
+      dbt_sync_metrics_to_metabase: this.handleDbtSyncMetricsToMetabase.bind(this),
+      dbt_generate_exposures_from_metabase: this.handleDbtGenerateExposuresFromMetabase.bind(this),
+      dbt_smart_create_card: this.handleDbtSmartCreateCard.bind(this),
       semantic_memory_propose: this.handleSemanticMemoryPropose.bind(this),
       semantic_memory_approve: this.handleSemanticMemoryApprove.bind(this),
       semantic_memory_deprecate: this.handleSemanticMemoryDeprecate.bind(this),

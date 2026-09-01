@@ -412,6 +412,10 @@ class MetabaseMCPServer {
       case 'dbt_semantic_preagg_advisor': return await this.dbtSemanticHandler.handleDbtSemanticPreaggAdvisor(args);
       case 'dbt_build_dashboard_from_yaml': return await this.dbtSemanticHandler.handleDbtBuildDashboardFromYaml(args);
       case 'dbt_semantic_export_yaml': return await this.dbtSemanticHandler.handleDbtSemanticExportYaml(args);
+      case 'dbt_sync_metadata_to_metabase': return await this.dbtSemanticHandler.handleDbtSyncMetadataToMetabase(args);
+      case 'dbt_sync_metrics_to_metabase': return await this.dbtSemanticHandler.handleDbtSyncMetricsToMetabase(args);
+      case 'dbt_generate_exposures_from_metabase': return await this.dbtSemanticHandler.handleDbtGenerateExposuresFromMetabase(args);
+      case 'dbt_smart_create_card': return await this.dbtSemanticHandler.handleDbtSmartCreateCard(args);
       case 'semantic_memory_propose': return await this.dbtSemanticHandler.handleSemanticMemoryPropose(args);
       case 'semantic_memory_approve': return await this.dbtSemanticHandler.handleSemanticMemoryApprove(args);
       case 'semantic_memory_deprecate': return await this.dbtSemanticHandler.handleSemanticMemoryDeprecate(args);
