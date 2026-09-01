@@ -38,10 +38,20 @@ Thumbs.db
 .agents/
 .gemini/
 .antigravity/
+.antigravity*/
 .claude/
 CLAUDE.md
 CLAUDE_DESKTOP_TEST.md
 claude_desktop_config.json
+PROJECT.md
+TEST_INFRA.md
+TEST_READY.md
+implementation_plan.md
+prompt_draft.md
+walkthrough.md
+*.pb
+*.pbtxt
+*.log
 
 # Build & Binaries
 dist/
